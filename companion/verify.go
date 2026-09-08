@@ -16,6 +16,13 @@ type Finding struct {
 	Detail  string
 }
 
+// Fatal separates integrity failures from notices. An UNRECORDED segment is
+// the normal residue of a companion that was killed mid-segment, so it must
+// not make verification fail; it still has to be reported, because the archive
+// is documented as readable without this binary, and a reader walking the
+// directory would otherwise trust a file nothing vouched for.
+func (f Finding) Fatal() bool { return f.Verdict != "UNRECORDED" }
+
 // VerifyArchive re-hashes every segment and re-walks the chain. It needs no
 // database and no network: an archive whose integrity depends on the system
 // that produced it is not a durable copy of anything.
@@ -93,7 +100,44 @@ func VerifyArchive(dir string) ([]Finding, *Manifest, error) {
 		prevChain = seg.Chain
 		prevEnd = seg.EndLSN
 	}
+
+	out = append(out, unrecorded(dir, m)...)
 	return out, m, nil
+}
+
+// unrecorded finds segment files on disk that no manifest entry covers. A
+// SIGKILL leaves one, because a segment reaches the manifest only when it is
+// closed; so does anyone dropping a file into the directory by hand.
+func unrecorded(dir string, m *Manifest) []Finding {
+	known := make(map[string]bool, len(m.Segments))
+	for _, s := range m.Segments {
+		known[s.File] = true
+	}
+	names, err := filepath.Glob(filepath.Join(dir, "*.ndjson"))
+	if err != nil {
+		return nil
+	}
+	var out []Finding
+	for _, n := range names {
+		base := filepath.Base(n)
+		if known[base] {
+			continue
+		}
+		lines := int64(0)
+		if f, err := os.Open(n); err == nil {
+			sc := bufio.NewScanner(f)
+			sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+			for sc.Scan() {
+				lines++
+			}
+			f.Close()
+		}
+		out = append(out, Finding{-1, "UNRECORDED", fmt.Sprintf(
+			"%s holds %d line(s) that no manifest entry covers -- expected if the "+
+				"companion was killed mid-segment, otherwise the file was added by hand",
+			base, lines)})
+	}
+	return out
 }
 
 func gapRecorded(dir string, m *Manifest, seq int) bool {

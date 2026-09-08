@@ -9,6 +9,7 @@ Row-level undo and history for PostgreSQL.
 - [Overview](docs/index.md)
 - [Architecture](docs/architecture.md)
 - [Getting Started](docs/quick_start.md)
+- [Examples](docs/examples.md)
 - [Installing Volvra](docs/installation.md)
     - [Configuring Volvra](docs/configuration.md)
     - [Upgrading Volvra](docs/upgrading.md)

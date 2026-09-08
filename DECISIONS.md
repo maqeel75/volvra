@@ -33,6 +33,24 @@ wrong.**
 
 ---
 
+## The repository stays pgEdge-attributed
+
+*Where this lives, and who owns it.*
+
+**Decided 2026-09-08.** Every reference stays `pgEdge`: the copyright
+in `LICENSE.md` and `docs/LICENSE.md`, the `repo_url` and copyright in
+`mkdocs.yml`, the CI badge and issue links in `README.md` and the docs,
+and the Go module path `github.com/pgedge/volvra/companion`.
+
+The repository currently sits at `github.com/maqeel75/volvra` and is
+intended to move to the pgEdge organisation. Rewriting the references
+to a personal account and back again would churn the history and the
+Go module path for no gain.
+
+The known cost until the transfer: the CI badge does not render and the
+issue links resolve to the wrong place. That is accepted deliberately.
+Do not "fix" these references.
+
 ## The product version is not the schema version
 
 *What the version number means.*

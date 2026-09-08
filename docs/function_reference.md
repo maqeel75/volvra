@@ -333,6 +333,24 @@ The function takes `older_than interval` and returns `action`,
 `object`, and `rows_removed`. The action is `dropped partition` or
 `deleted rows`.
 
+### volvra.cover_partitions
+
+Attaches the statement-level TRUNCATE trigger to every partition of a
+covered partitioned table that does not already have the trigger.
+Requires membership in `volvra_admin`.
+
+PostgreSQL propagates row triggers from a partitioned parent to its
+partitions but never statement-level TRUNCATE triggers, so a partition
+attached after `volvra.enable` captures INSERT, UPDATE, and DELETE
+while a TRUNCATE of that partition alone would destroy rows with no
+history. `volvra.enable` calls this function for a partitioned table,
+and `volvra.maintain` calls the function on every run to reconcile
+partitions added since.
+
+The function takes `target regclass` defaulting to NULL, which
+reconciles every covered partitioned table, and returns
+`partition_name` and `action`.
+
 ### volvra.ensure_partitions
 
 Creates the current month and the requested number of following
@@ -433,7 +451,9 @@ at run time to the `companion_publication` setting, and then to
 ### volvra.companion_status
 
 Reports the durable tier, beginning with the numbers that predict disk
-exhaustion. Requires membership in `volvra_viewer`.
+exhaustion, and including a `publication drift` row that counts
+covered tables the publication does not carry. Requires membership in
+`volvra_viewer`.
 
 The function takes no arguments and returns `item`, `value`, and
 `status`.

@@ -60,6 +60,15 @@ Volvra rebuilds the publication rather than patching the publication,
 because reconciling additions and removals by hand is how a table ends
 up silently outside the publication.
 
+Covering a table after this call does not require running the call
+again. `volvra.enable` adds the newly covered table to the
+publication itself, because a covered table outside the publication is
+archived by nothing, and the companion cannot report what the
+publication never mentioned. If the caller does not own the
+publication, `volvra.enable` still enables capture and raises a
+warning naming the table; run `volvra.companion_setup` as the
+publication owner to close the gap.
+
 ## Running the companion
 
 Start the companion against a directory it may write:
@@ -174,9 +183,15 @@ SELECT item, value, status FROM volvra.companion_status();
 ```
 
 The function reports the server `wal_level`, the publication and its
-table count, covered tables missing `REPLICA IDENTITY FULL`, the slot
-and whether a companion is connected, retained WAL against both
-thresholds, the last archived position, and any recorded gaps.
+table count, covered tables that the publication does not carry,
+covered tables missing `REPLICA IDENTITY FULL`, the slot and whether a
+companion is connected, retained WAL against both thresholds, the last
+archived position, and any recorded gaps.
+
+The `publication drift` row is the one to watch. A covered table
+outside the publication looks like working coverage until the day the
+archive is needed, so the row reports `INCOMPLETE` and names how many
+covered tables are affected.
 
 Volvra records the companion's progress in
 `volvra.companion_checkpoint`, and gaps in `volvra.companion_gap`.

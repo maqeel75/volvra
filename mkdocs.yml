@@ -59,6 +59,7 @@ nav:
   - Overview: index.md
   - Architecture: architecture.md
   - Getting Started: quick_start.md
+  - Examples: examples.md
   - Installing Volvra:
       - Installation: installation.md
       - Configuring Volvra: configuration.md

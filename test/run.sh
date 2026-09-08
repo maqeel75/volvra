@@ -193,6 +193,16 @@ for v in "${VERSIONS[@]}"; do
       -f /volvra/sql/volvra.sql
     docker exec -e PGDATABASE=volvra_cli "$cname" bash /volvra/test/cli.sh
 
+    # Scenarios assert that verify() is clean, and phase 4 deliberately plants
+    # tampering, so this needs a database of its own.  Run as the unprivileged
+    # owner: it is the weaker privilege context and the recommended install.
+    echo "### scenarios ###"
+    su_psql -c "CREATE DATABASE volvra_scenarios OWNER volvra_owner"
+    docker exec "$cname" psql -v ON_ERROR_STOP=1 -U volvra_owner -d volvra_scenarios \
+      -f /volvra/sql/volvra.sql
+    docker exec "$cname" psql -v ON_ERROR_STOP=1 -U volvra_owner -d volvra_scenarios \
+      -f /volvra/test/scenarios.sql
+
     # Upgrade path: the previous released schema, real history, then the
     # current schema installed over it twice.
     echo "### upgrade from v1 ###"
@@ -209,12 +219,13 @@ for v in "${VERSIONS[@]}"; do
   emissing=()
   for m in 'VOLVRA NON-SUPERUSER INSTALL PASSED' \
            'ALL VOLVRA CLI CHECKS PASSED' \
+           'ALL VOLVRA SCENARIO CHECKS PASSED' \
            'VOLVRA UPGRADE FROM V1 PASSED'; do
     grep -q "$m" "$extra_log" || emissing+=("$m")
   done
 
   if [[ $erc -eq 0 && ${#emissing[@]} -eq 0 ]]; then
-    echo "  ✓ extra: non-superuser install + cli + upgrade"
+    echo "  ✓ extra: non-superuser install + cli + scenarios + upgrade"
   else
     echo "  ✗ extra: FAILED (rc=$erc)${emissing[*]+, missing: ${emissing[*]}}"
     grep -nE "^psql.*ERROR|^ERROR|FAIL " "$extra_log" | head -3 | sed 's/^/        /'

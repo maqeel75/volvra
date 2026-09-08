@@ -68,6 +68,20 @@ the host:
 ./test/companion.sh 17 55432
 ```
 
+## Verifying the examples
+
+Every file in `examples/` is checked against a real database on all six
+supported versions, asserting the end state rather than only that psql
+exited:
+
+```bash
+./test/examples.sh         # 14 15 16 17 18 19
+./test/examples.sh 17
+```
+
+Two examples print an ERROR deliberately, so the runner also asserts
+that those errors occurred.
+
 The decisive test destroys the in-database history entirely, restores
 the archive, and then reverts the damage from archived history alone.
 

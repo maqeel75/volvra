@@ -24,17 +24,21 @@ type relation struct {
 }
 
 type Streamer struct {
-	repl  *pgconn.PgConn // replication connection
-	meta  *pgconn.PgConn // ordinary connection, for catalog lookups
-	slot  string
-	pub   string
-	arch  *Archive
-	rels  map[uint32]*relation
-	guard *SlotGuard
+	repl *pgconn.PgConn // replication connection
+	meta *pgconn.PgConn // ordinary connection, for catalog lookups
+	slot string
+	// skipTo is the last LSN already durable in the archive at startup.
+	// Anything at or below it is a replay, not a new change.
+	skipTo pglogrepl.LSN
+	pub    string
+	arch   *Archive
+	rels   map[uint32]*relation
+	guard  *SlotGuard
 
 	commitTS time.Time
 	xid      uint32
 	changes  int64
+	skipped  int64
 }
 
 func NewStreamer(ctx context.Context, dsn, slot, pub string, arch *Archive, guard *SlotGuard) (*Streamer, error) {
@@ -144,6 +148,20 @@ func (s *Streamer) Run(ctx context.Context, start pglogrepl.LSN, report func(pgl
 	}
 	log.Printf("streaming publication %s from %s", s.pub, start)
 
+	// The LSN passed to START_REPLICATION is a request, not a guarantee:
+	// Postgres is free to begin streaming from an earlier point, and after a
+	// SIGKILL it does exactly that, because the slot's confirmed position lags
+	// what the archive already holds durably. Everything at or below the
+	// resume point is therefore already in a manifested segment and must be
+	// dropped here, or the archive gains duplicate changes and its LSNs stop
+	// being monotonic.
+	s.skipTo = 0
+	if l := s.arch.ResumeLSN(); l != "" {
+		if p, err := pglogrepl.ParseLSN(l); err == nil {
+			s.skipTo = p
+		}
+	}
+
 	// Only ever acknowledge what is durably in the archive. Acknowledging
 	// sooner would let Postgres discard WAL the archive does not have.
 	acked := start
@@ -207,6 +225,8 @@ func (s *Streamer) Run(ctx context.Context, start pglogrepl.LSN, report func(pgl
 			if err != nil {
 				return err
 			}
+			// Relation and Begin/Commit bookkeeping still has to be applied,
+			// so the filtering happens per change, in handle.
 			if err := s.handle(ctx, xld); err != nil {
 				return err
 			}
@@ -302,6 +322,9 @@ func (s *Streamer) emit(lsn string, rel *relation, op string,
 		}
 	}
 	if len(pk) == 0 {
+		if s.replayed(lsn) {
+			return nil
+		}
 		// Without a key the change cannot be addressed later, so it is a gap,
 		// not a change.
 		return s.arch.Append(Change{
@@ -309,6 +332,10 @@ func (s *Streamer) emit(lsn string, rel *relation, op string,
 			Gap: true, FromLSN: lsn, ToLSN: lsn,
 			Reason: "no primary key: the change cannot be addressed for an undo",
 		})
+	}
+
+	if s.replayed(lsn) {
+		return nil
 	}
 
 	c := Change{
@@ -377,4 +404,26 @@ func quoteIdent(s string) string {
 		out = append(out, s[i])
 	}
 	return string(append(out, '"'))
+}
+
+// replayed reports whether a change was already archived before the last
+// restart. It is only ever true immediately after resuming, because skipTo is
+// fixed at startup and the stream advances past it.
+func (s *Streamer) replayed(lsn string) bool {
+	if s.skipTo == 0 {
+		return false
+	}
+	p, err := pglogrepl.ParseLSN(lsn)
+	if err != nil {
+		return false
+	}
+	if p > s.skipTo {
+		return false
+	}
+	s.skipped++
+	if s.skipped == 1 {
+		log.Printf("skipping changes at or below %s: already durable in the archive",
+			s.skipTo)
+	}
+	return true
 }

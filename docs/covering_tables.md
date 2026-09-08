@@ -38,6 +38,60 @@ The function reports one row per table, including the tables the
 function skipped and why. A table with no primary key is skipped
 rather than failed, because Volvra identifies rows by primary key.
 
+## Covering a partitioned table
+
+Cover the parent, not the partitions:
+
+```sql
+SELECT volvra.enable('events');
+```
+
+PostgreSQL propagates a row trigger from a partitioned parent to every
+partition, including partitions attached later, so covering the parent
+covers the whole table. Volvra records each change under the parent's
+name, which means one undo of the parent reverts rows in every
+partition:
+
+```sql
+SELECT count(*) FROM volvra.undo('events', :start, :end, confirm => true);
+```
+
+Covering an individual partition of a covered parent is unnecessary.
+`volvra.enable` reports that the partition is already covered through
+its parent and makes no change.
+
+PostgreSQL does not propagate statement-level TRUNCATE triggers to
+partitions, so those are attached explicitly. `volvra.enable` attaches
+them to the partitions that exist at the time of the call, and
+`volvra.maintain` attaches them to partitions added since. A partition
+attached between those two points is captured for INSERT, UPDATE, and
+DELETE but not for TRUNCATE, so run `volvra.cover_partitions` in the
+migration that adds a partition if you truncate partitions directly:
+
+```sql
+SELECT partition_name, action FROM volvra.cover_partitions('events');
+```
+
+## Renaming a covered table
+
+Renaming a covered table, or moving the table between schemas, needs
+no action. The triggers move with the table, and Volvra identifies a
+covered table by its relation identifier rather than by name, so the
+coverage ledger corrects itself on the next change and reports a
+notice naming the old and new names.
+
+History recorded before the rename stays under the old name, because
+that is what was true when the change happened. An undo that must
+reach across a rename needs both names:
+
+```sql
+SELECT count(*) FROM volvra.undo(
+  tables  => ARRAY['old_name', 'new_name']::regclass[],
+  from_ts => :start,
+  to_ts   => :end,
+  confirm => true);
+```
+
 ## Keeping coverage complete
 
 A table created after your initial setup starts with no coverage.

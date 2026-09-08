@@ -18,13 +18,23 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mistake, with an option to skip conflicting rows instead.
 - A blast-radius cap on the number of rows a single undo may affect.
 - TRUNCATE capture, with block and allow modes as alternatives.
+- Support for partitioned tables, covered through the parent, so one
+  undo reverts rows in every partition. `volvra.cover_partitions`
+  attaches TRUNCATE capture to partitions, which PostgreSQL does not
+  propagate on its own, and `volvra.maintain` reconciles partitions
+  added later.
+- Coverage that survives ALTER TABLE RENAME and SET SCHEMA, because a
+  covered table is identified by its relation identifier rather than
+  by name.
 - Schema-wide coverage with `volvra.enable_all`, plus coverage gap
   reporting with `volvra.uncovered`.
 - Monthly partitioning of the history, with partition-dropping
   retention and per-table retention policies.
 - A single maintenance function that extends partitions, applies
   retention, and seals the history.
-- Health, preflight, status, storage, and activity functions.
+- Health, preflight, status, storage, and activity functions,
+  including a publication drift check that reports covered tables the
+  companion publication does not carry.
 - Tamper evidence through a SHA-256 seal chain over ranges of the
   history, with verification that distinguishes lawful erasure and
   retention from tampering.

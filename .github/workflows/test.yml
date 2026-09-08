@@ -27,6 +27,83 @@ jobs:
           path: test/logs/
           if-no-files-found: warn
 
+  examples:
+    name: Examples (PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['14', '15', '16', '17', '18', '19']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every example, end state asserted
+        run: ./test/examples.sh ${{ matrix.pg }}
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: examples-pg${{ matrix.pg }}
+          path: test/logs/
+          if-no-files-found: warn
+
+  concurrency:
+    name: Concurrency (PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['14', '15', '16', '17', '18', '19']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      # The two-companions-on-one-slot scenario needs a binary that runs
+      # inside the container, not on the runner.
+      - name: Build the companion for linux
+        run: |
+          GOOS=linux GOARCH=amd64 go build -C companion \
+            -o "$RUNNER_TEMP/volvra-companion" .
+      - name: Parallel sessions, locks, and conflict guard
+        env:
+          VOLVRA_COMPANION_BIN: ${{ runner.temp }}/volvra-companion
+        run: ./test/concurrency.sh ${{ matrix.pg }}
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: concurrency-pg${{ matrix.pg }}
+          path: test/logs/
+          if-no-files-found: warn
+
+  recovery:
+    name: Recovery (PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['14', '15', '16', '17', '18', '19']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Build the companion for linux
+        run: |
+          GOOS=linux GOARCH=amd64 go build -C companion \
+            -o "$RUNNER_TEMP/volvra-companion" .
+      - name: Crashes, SIGKILL, and a full filesystem
+        env:
+          VOLVRA_COMPANION_BIN: ${{ runner.temp }}/volvra-companion
+        run: ./test/recovery.sh ${{ matrix.pg }}
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-pg${{ matrix.pg }}
+          path: test/logs/
+          if-no-files-found: warn
+
   companion:
     name: Companion (PG ${{ matrix.pg }})
     runs-on: ubuntu-latest

@@ -244,6 +244,13 @@ CREATE TABLE IF NOT EXISTS volvra.enabled_tables (
   -- trade-off flips with row width: storing only the delta is a large saving on
   -- a wide row and a small tax on a narrow one.
   update_mode      text,
+  -- The relation's OID, which survives ALTER TABLE ... RENAME and SET SCHEMA
+  -- while table_name does not.  Without it, renaming a covered table left the
+  -- ledger naming a table that no longer existed, and every subsequent write
+  -- failed with "not registered" -- the rename made the table unusable.
+  -- Nullable because a row may predate the column, and because a name that
+  -- currently resolves to nothing still has history worth keeping.
+  rel_oid          oid,
   enabled_at       timestamptz NOT NULL DEFAULT now(),
   enabled_by       text        NOT NULL DEFAULT current_user
 );
@@ -252,6 +259,19 @@ ALTER TABLE volvra.enabled_tables
   ADD COLUMN IF NOT EXISTS excluded_columns text[] NOT NULL DEFAULT '{}';
 ALTER TABLE volvra.enabled_tables
   ADD COLUMN IF NOT EXISTS update_mode text;
+ALTER TABLE volvra.enabled_tables
+  ADD COLUMN IF NOT EXISTS rel_oid oid;
+
+-- Backfill for databases covered before rel_oid existed.  A catalog join
+-- rather than volvra._resolve(), because the functions are not created yet at
+-- this point in the install.  A name that matches nothing is left NULL: it has
+-- history worth keeping and no relation to point at.
+UPDATE volvra.enabled_tables e
+   SET rel_oid = c.oid
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE e.rel_oid IS NULL
+   AND e.table_name = format('%I.%I', n.nspname, c.relname);
 
 -- Audit of every undo attempt, previewed or applied
 CREATE TABLE IF NOT EXISTS volvra.undo_log (
@@ -939,6 +959,35 @@ $$;
 -- application roles.  Install as a dedicated owner role, never as a
 -- superuser, in production.
 -- ---------------------------------------------------------------------
+-- The nearest ancestor of a partition that volvra.enable() covers.
+--
+-- Returns nothing for an ordinary table, or for a partition whose ancestors
+-- are all uncovered.  Walking the whole chain rather than one level up is
+-- deliberate: partitions can be partitioned, and the covered table may be the
+-- root rather than the immediate parent.
+CREATE OR REPLACE FUNCTION volvra._covered_ancestor(p_relid oid)
+RETURNS TABLE (table_name text, excluded_columns text[], update_mode text)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+  WITH RECURSIVE up AS (
+    SELECT i.inhparent AS relid, 1 AS lvl
+    FROM pg_inherits i WHERE i.inhrelid = p_relid
+    UNION ALL
+    SELECT i.inhparent, u.lvl + 1
+    FROM up u JOIN pg_inherits i ON i.inhrelid = u.relid
+    WHERE u.lvl < 32
+  )
+  SELECT e.table_name, e.excluded_columns, e.update_mode
+  FROM up
+  JOIN pg_class c  ON c.oid = up.relid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN volvra.enabled_tables e
+    ON e.table_name = format('%I.%I', n.nspname, c.relname)
+  ORDER BY up.lvl
+  LIMIT 1;
+$$;
+
 CREATE OR REPLACE FUNCTION volvra.capture() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
@@ -952,6 +1001,7 @@ DECLARE
   v_excl    text[];
   v_mode    text;
   v_tbl     text := format('%I.%I', TG_TABLE_SCHEMA, TG_TABLE_NAME);
+  v_stale   text;
 BEGIN
   -- Refuse to write history for a table volvra.enable() does not cover.  Without
   -- this, anyone able to attach this trigger to a table of their own could
@@ -961,8 +1011,38 @@ BEGIN
   SELECT e.excluded_columns, e.update_mode INTO v_excl, v_mode
   FROM volvra.enabled_tables e WHERE e.table_name = v_tbl;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'volvra.capture: % is not registered via volvra.enable()', v_tbl
+  -- A row trigger on a partitioned table is propagated to every partition,
+  -- including partitions attached later, and it fires with TG_RELID set to the
+  -- partition the row landed in -- which is not what was registered.  Walk up
+  -- to the covered ancestor and record the change under that name, so a
+  -- partitioned table behaves as the one table the caller covered.
+  -- ALTER TABLE ... RENAME and SET SCHEMA move the trigger with the table but
+  -- leave table_name in the ledger pointing at a name that no longer exists.
+  -- The OID survives both, so it is what identifies the table here; finding
+  -- the row this way and correcting the name is what keeps a rename from
+  -- making a covered table unwritable.
+  IF NOT FOUND AND TG_RELID IS NOT NULL THEN
+    SELECT e.table_name, e.excluded_columns, e.update_mode
+      INTO v_stale, v_excl, v_mode
+    FROM volvra.enabled_tables e WHERE e.rel_oid = TG_RELID;
+
+    IF FOUND THEN
+      UPDATE volvra.enabled_tables SET table_name = v_tbl
+       WHERE rel_oid = TG_RELID AND table_name = v_stale;
+      RAISE NOTICE 'volvra: % was renamed to %; the coverage ledger has been '
+                   'updated. History recorded under the old name is still '
+                   'readable under that name.', v_stale, v_tbl;
+    ELSE
+      SELECT a.table_name, a.excluded_columns, a.update_mode
+        INTO v_tbl, v_excl, v_mode
+      FROM volvra._covered_ancestor(TG_RELID) AS a;
+    END IF;
+  END IF;
+
+  IF v_tbl IS NULL OR NOT EXISTS (SELECT 1 FROM volvra.enabled_tables e
+                                  WHERE e.table_name = v_tbl) THEN
+    RAISE EXCEPTION 'volvra.capture: % is not registered via volvra.enable()',
+                    coalesce(v_tbl, format('%I.%I', TG_TABLE_SCHEMA, TG_TABLE_NAME))
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -1052,6 +1132,8 @@ SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
   v_tbl   text := format('%I.%I', TG_TABLE_SCHEMA, TG_TABLE_NAME);
+  -- The relation this trigger fired for, which for a partition is not v_tbl.
+  v_src   text := format('%I.%I', TG_TABLE_SCHEMA, TG_TABLE_NAME);
   v_mode  text := coalesce(volvra.get_setting('on_truncate'), 'capture');
   v_cap   bigint := coalesce(volvra.get_setting('truncate_capture_max_rows')::bigint, 100000);
   v_pk    text[];
@@ -1060,9 +1142,37 @@ BEGIN
   SELECT e.pk_columns INTO v_pk
   FROM volvra.enabled_tables e WHERE e.table_name = v_tbl;
 
+  -- As in capture(): a truncate trigger reached through a partition has to be
+  -- attributed to the covered ancestor, or truncating a covered partitioned
+  -- table would fail on a table the caller never registered directly.
+  --
+  -- The name recorded and the rows read are two different things.  v_tbl is
+  -- the covered table, so the history reads as one table and one undo of it
+  -- covers every partition.  v_src is the relation this trigger actually
+  -- fired for, and it is the only place the rows may be read from: reading
+  -- the parent from a partition's trigger captured every row once per
+  -- partition.
+  IF v_pk IS NULL AND TG_RELID IS NOT NULL THEN
+    SELECT a.table_name INTO v_tbl FROM volvra._covered_ancestor(TG_RELID) AS a;
+    IF v_tbl IS NOT NULL THEN
+      SELECT e.pk_columns INTO v_pk
+      FROM volvra.enabled_tables e WHERE e.table_name = v_tbl;
+    END IF;
+  END IF;
+
   IF v_pk IS NULL THEN
-    RAISE EXCEPTION 'volvra.capture_truncate: % is not registered via volvra.enable()', v_tbl
+    RAISE EXCEPTION 'volvra.capture_truncate: % is not registered via volvra.enable()',
+                    coalesce(v_tbl, format('%I.%I', TG_TABLE_SCHEMA, TG_TABLE_NAME))
       USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- TRUNCATE of a partitioned parent fires this trigger on the parent AND on
+  -- every partition.  The parent holds no rows of its own, so capturing there
+  -- would duplicate what the partitions capture; leave the rows to them.
+  IF TG_RELID IS NOT NULL
+     AND EXISTS (SELECT 1 FROM pg_class WHERE oid = TG_RELID AND relkind = 'p')
+  THEN
+    RETURN NULL;
   END IF;
 
   IF v_mode = 'block' THEN
@@ -1073,7 +1183,7 @@ BEGIN
   END IF;
 
   IF v_mode = 'capture' THEN
-    EXECUTE format('SELECT count(*) FROM %s', v_tbl) INTO v_rows;
+    EXECUTE format('SELECT count(*) FROM %s', v_src) INTO v_rows;
 
     IF v_rows > v_cap THEN
       RAISE EXCEPTION 'volvra: refusing to capture % rows before truncating %',
@@ -1089,7 +1199,7 @@ BEGIN
       '  (table_name, op, pk, old_row, new_row, actor, db_user, txid) '
       'SELECT %L, ''D'', volvra._extract_pk(to_jsonb(t), %L::text[]), to_jsonb(t), '
       '       NULL, volvra._actor(), volvra._db_user(), txid_current() '
-      'FROM %s AS t', v_tbl, v_pk, v_tbl);
+      'FROM %s AS t', v_tbl, v_pk, v_src);
 
     RETURN NULL;
   END IF;
@@ -1108,6 +1218,97 @@ $$;
 -- ---------------------------------------------------------------------
 -- enable / disable
 -- ---------------------------------------------------------------------
+-- Add a newly covered table to the companion publication, if one exists.
+--
+-- Deliberately best-effort: ALTER PUBLICATION needs publication ownership,
+-- which the caller of enable() may not have, and a database with no companion
+-- has no publication to maintain.  Failing enable() over the durable tier
+-- would be the wrong trade -- the trigger tier is what the caller asked for.
+-- A WARNING is loud enough to act on, and companion_status() reports the drift
+-- for anyone who missed it.
+CREATE OR REPLACE FUNCTION volvra._publish(p_table text) RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_pub text := coalesce(volvra.get_setting('companion_publication'), 'volvra_pub');
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = v_pub) THEN
+    RETURN false;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_publication_tables t
+             WHERE t.pubname = v_pub
+               AND format('%I.%I', t.schemaname, t.tablename) = p_table) THEN
+    RETURN true;
+  END IF;
+  EXECUTE format('ALTER PUBLICATION %I ADD TABLE %s', v_pub, p_table);
+  RETURN true;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'volvra: % is covered but could not be added to publication % '
+                '(%). The companion will not archive it until you run '
+                'volvra.companion_setup() as the publication owner.',
+                p_table, v_pub, SQLERRM;
+  RETURN false;
+END
+$$;
+
+-- Attach the statement-level TRUNCATE trigger to every partition of a covered
+-- partitioned table, and report how many needed it.
+--
+-- PostgreSQL propagates ROW triggers from a partitioned parent to its
+-- partitions, including partitions attached later, but it does NOT propagate
+-- statement-level TRUNCATE triggers.  Without this, TRUNCATE on the parent is
+-- captured and reversible while TRUNCATE on one partition destroys rows with
+-- no history at all -- the same statement, two different guarantees, which is
+-- the worst kind of gap.
+--
+-- A partition attached after this runs is again uncovered for TRUNCATE, so
+-- maintain() calls this to reconcile, and status() reports the shortfall.
+CREATE OR REPLACE FUNCTION volvra.cover_partitions(target regclass DEFAULT NULL)
+RETURNS TABLE (partition_name text, action text)
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  r record;
+BEGIN
+  PERFORM volvra._require('volvra_admin');
+
+  FOR r IN
+    WITH RECURSIVE covered AS (
+      SELECT volvra._resolve(e.table_name) AS relid
+      FROM volvra.enabled_tables e
+      WHERE volvra._resolve(e.table_name) IS NOT NULL
+        AND (target IS NULL OR volvra._resolve(e.table_name) = target)
+    ), down AS (
+      SELECT i.inhrelid AS relid, 1 AS lvl
+      FROM pg_inherits i JOIN covered c ON c.relid = i.inhparent
+      UNION ALL
+      SELECT i.inhrelid, d.lvl + 1
+      FROM down d JOIN pg_inherits i ON i.inhparent = d.relid
+      WHERE d.lvl < 32
+    )
+    SELECT format('%I.%I', n.nspname, c.relname) AS name, c.oid
+    FROM down
+    JOIN pg_class c ON c.oid = down.relid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('r', 'p')
+      AND NOT EXISTS (SELECT 1 FROM pg_trigger t
+                      WHERE t.tgrelid = c.oid
+                        AND t.tgname = 'volvra_capture_truncate')
+    ORDER BY 1
+  LOOP
+    EXECUTE format(
+      'CREATE TRIGGER volvra_capture_truncate '
+      'BEFORE TRUNCATE ON %s '
+      'FOR EACH STATEMENT EXECUTE FUNCTION volvra.capture_truncate()', r.name);
+    partition_name := r.name;
+    action := 'truncate trigger added';
+    RETURN NEXT;
+  END LOOP;
+END
+$$;
+
 CREATE OR REPLACE FUNCTION volvra.enable(target regclass) RETURNS text
 LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
@@ -1116,7 +1317,18 @@ DECLARE
   v_tbl    text   := volvra._fqname(target);
   v_pkcols text[] := volvra._pkcols(target);
   v_args   text;
+  v_parent text;
 BEGIN
+  -- Covering a partition whose ancestor is already covered would fail deep
+  -- inside CREATE TRIGGER with "internal or a child trigger", which explains
+  -- nothing.  The ancestor's trigger already fires for this partition's rows,
+  -- so there is nothing to do and saying so is more useful than either the
+  -- catalog error or silent success.
+  SELECT a.table_name INTO v_parent FROM volvra._covered_ancestor(target) AS a;
+  IF v_parent IS NOT NULL THEN
+    RETURN format('volvra: %s is already covered through %s, which volvra.enable() '
+                  'covers as one table -- nothing to do', v_tbl, v_parent);
+  END IF;
   PERFORM volvra._require('volvra_admin');
 
   IF split_part(v_tbl, '.', 1) = 'volvra' THEN
@@ -1138,10 +1350,13 @@ BEGIN
   -- Registered first, then covered: capture_truncate() refuses tables it does
   -- not find in enabled_tables, so the row below must land before the trigger
   -- fires.
-  INSERT INTO volvra.enabled_tables AS e (table_name, pk_columns)
-  VALUES (v_tbl, v_pkcols)
+  INSERT INTO volvra.enabled_tables AS e (table_name, pk_columns, rel_oid)
+  VALUES (v_tbl, v_pkcols, target)
   ON CONFLICT (table_name) DO UPDATE
     SET pk_columns = EXCLUDED.pk_columns,
+        -- Refreshed, not preserved: a table dropped and recreated under the
+        -- same name is a different relation with a different OID.
+        rel_oid    = EXCLUDED.rel_oid,
         enabled_at = now(),
         enabled_by = current_user;
 
@@ -1149,6 +1364,20 @@ BEGIN
     'CREATE OR REPLACE TRIGGER volvra_capture_truncate '
     'BEFORE TRUNCATE ON %s '
     'FOR EACH STATEMENT EXECUTE FUNCTION volvra.capture_truncate()', v_tbl);
+
+  -- Keep the durable tier in step.  companion_setup() builds the publication
+  -- from the tables covered when it runs, so a table covered afterwards would
+  -- sit outside it and be archived by nothing at all -- silently, because the
+  -- companion streams the publication and never sees what is missing from it.
+  -- Adding it here is the difference between coverage and the appearance of
+  -- coverage.
+  PERFORM volvra._publish(v_tbl);
+
+  -- Statement-level TRUNCATE triggers do not propagate to partitions the way
+  -- row triggers do, so a partitioned table needs them attached explicitly.
+  IF EXISTS (SELECT 1 FROM pg_class WHERE oid = target AND relkind = 'p') THEN
+    PERFORM count(*) FROM volvra.cover_partitions(target);
+  END IF;
 
   RETURN format('volvra: capture enabled on %s (pk: %s)',
                 v_tbl, array_to_string(v_pkcols, ', '));
@@ -3031,6 +3260,16 @@ BEGIN
     affected := v_n; RETURN NEXT;
   END IF;
 
+  -- A partition attached since the last run inherits the parent's row trigger
+  -- but not its TRUNCATE trigger, so reconciling here is what keeps TRUNCATE
+  -- of a partition as safe as TRUNCATE of its parent.
+  SELECT count(*) INTO v_n FROM volvra.cover_partitions() c;
+  IF v_n > 0 THEN
+    step := 'partitions covered';
+    detail := 'truncate trigger attached to new partitions';
+    affected := v_n; RETURN NEXT;
+  END IF;
+
   IF p_purge THEN
     SELECT coalesce(sum(x.rows_removed), 0) INTO v_n FROM volvra.purge() x;
     step := 'retention'; detail := 'per-table policy applied';
@@ -3178,6 +3417,26 @@ BEGIN
   status := CASE WHEN v_ret > 0 THEN format('%s table(s)', v_ret)
                  ELSE 'MISSING: run volvra.companion_setup()' END;
   RETURN NEXT;
+
+  -- A covered table outside the publication is archived by nothing, and
+  -- nothing else reports it: the companion streams what the publication says
+  -- and cannot know what was left out.  This is the one drift that looks like
+  -- working coverage right up to the day the archive is needed.
+  IF v_ret > 0 THEN
+    SELECT count(*) INTO v_ret
+    FROM volvra.enabled_tables e
+    WHERE volvra._resolve(e.table_name) IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables t
+        WHERE t.pubname = v_pub
+          AND format('%I.%I', t.schemaname, t.tablename) = e.table_name);
+    item := 'publication drift';
+    value := format('%s covered table(s) not published', v_ret);
+    status := CASE WHEN v_ret = 0 THEN 'ok'
+                   ELSE 'INCOMPLETE: those tables are archived by nothing -- '
+                        'run volvra.companion_setup()' END;
+    RETURN NEXT;
+  END IF;
 
   -- Covered tables missing FULL identity would be archived without a before
   -- image, which makes the archive unable to drive an undo.
@@ -3708,6 +3967,8 @@ BEGIN
           '  volvra.companion_setup(text, text), '
           '  volvra.capture(), '
           '  volvra.capture_truncate(), '
+          '  volvra._publish(text), '
+          '  volvra.cover_partitions(regclass), '
           '  volvra._stamp_audit(), '
           '  volvra._guard_append_only() '
           'FROM volvra_viewer';
@@ -3736,6 +3997,8 @@ BEGIN
           'volvra.maintain(integer, boolean, boolean), '
           'volvra.companion_setup(text, text), '
           'volvra.enable_all(text), volvra.disable_all(text), '
+          'volvra._publish(text), '
+          'volvra.cover_partitions(regclass), '
           'volvra.make_fks_deferrable(text) TO volvra_admin';
   -- An administrator has to be able to write the tables its own documented
   -- operations write.  Without these, set_retention, set_capture_mode,

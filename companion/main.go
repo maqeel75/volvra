@@ -191,13 +191,29 @@ func cmdVerify(dir string) error {
 	fmt.Printf("segments %d\n", len(m.Segments))
 	fmt.Printf("changes  %d\n", changes)
 
+	fatal := 0
+	for _, f := range findings {
+		if f.Fatal() {
+			fatal++
+		}
+	}
+
 	if len(findings) == 0 {
 		fmt.Println("\nEvery segment matches its manifest entry, and the chain is intact.")
 		return nil
 	}
-	fmt.Printf("\n%d problem(s):\n", len(findings))
+	fmt.Printf("\n%d finding(s):\n", len(findings))
 	for _, f := range findings {
-		fmt.Printf("  segment %-4d %-16s %s\n", f.Segment, f.Verdict, f.Detail)
+		seg := fmt.Sprintf("%d", f.Segment)
+		if f.Segment < 0 {
+			seg = "-"
+		}
+		fmt.Printf("  segment %-4s %-16s %s\n", seg, f.Verdict, f.Detail)
+	}
+	if fatal == 0 {
+		fmt.Println("\nEvery recorded segment matches its manifest entry, and the chain " +
+			"is intact. The findings above are notices, not integrity failures.")
+		return nil
 	}
 	return fmt.Errorf("archive verification failed")
 }
@@ -218,10 +234,12 @@ func cmdRestore(ctx context.Context, dir, dsn string, dry bool) error {
 	if err != nil {
 		return err
 	}
-	if len(findings) > 0 {
-		for _, f := range findings {
-			fmt.Fprintf(os.Stderr, "  segment %-4d %-16s %s\n", f.Segment, f.Verdict, f.Detail)
-		}
+	fatal := false
+	for _, f := range findings {
+		fmt.Fprintf(os.Stderr, "  segment %-4d %-16s %s\n", f.Segment, f.Verdict, f.Detail)
+		fatal = fatal || f.Fatal()
+	}
+	if fatal {
 		return fmt.Errorf("refusing to restore an archive that does not verify")
 	}
 
