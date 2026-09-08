@@ -1,0 +1,15 @@
+# volvra -- undo for Postgres
+#
+# This packaging is for SELF-HOSTED users only, as a convenience.  The
+# supported install everywhere else is `psql -f sql/volvra.sql`, because
+# CREATE EXTENSION needs filesystem access to the server -- which is exactly
+# what managed providers do not give you, and exactly why volvra's core is
+# plain SQL in the first place.
+comment = 'Row-level undo and history for PostgreSQL'
+# Nothing has been released, so this stays at 0.1.0.  It is the *product*
+# version and is deliberately NOT coupled to volvra.schema_version, which is an
+# internal migration counter -- see DECISIONS.md.
+default_version = '0.1.0'
+relocatable = false
+superuser = false
+trusted = false

@@ -1,0 +1,86 @@
+site_name: Volvra
+site_description: Row-level undo and history for PostgreSQL
+
+extra_css:
+    - stylesheets/extra.css
+
+markdown_extensions:
+    - admonition
+    - pymdownx.details
+    - pymdownx.superfences
+    - tables
+    - toc:
+          permalink: true
+
+plugins:
+    - search
+
+theme:
+    name: material
+    custom_dir: docs/overrides
+    favicon: img/favicon.ico
+
+    logo_dark_mode: 'img/logo-dark.png'
+    logo_light_mode: 'img/logo-light.png'
+
+    features:
+        - navigation.instant
+        - navigation.tracking
+        - navigation.prune
+        - navigation.top
+        - navigation.sections
+        - toc.follow
+        - content.code.copy
+
+    palette:
+        - media: "(prefers-color-scheme: light)"
+          scheme: default
+          primary: white
+          accent: cyan
+          toggle:
+              icon: material/brightness-7
+              name: Switch to dark mode
+
+        - media: "(prefers-color-scheme: dark)"
+          scheme: slate
+          primary: black
+          accent: cyan
+          toggle:
+              icon: material/brightness-4
+              name: Switch to system preference
+
+extra:
+    generator: false
+
+copyright: Copyright &copy; 2026 pgEdge, Inc
+repo_url: https://github.com/pgEdge/volvra
+
+nav:
+  - Overview: index.md
+  - Architecture: architecture.md
+  - Getting Started: quick_start.md
+  - Installing Volvra:
+      - Installation: installation.md
+      - Configuring Volvra: configuration.md
+      - Upgrading Volvra: upgrading.md
+  - Using Volvra:
+      - Covering Tables: covering_tables.md
+      - Undoing Changes: undoing_changes.md
+      - Viewing History: viewing_history.md
+  - Managing an Installation:
+      - Monitoring: monitoring.md
+      - Managing Retention: retention.md
+      - Verifying History Integrity: integrity.md
+      - Erasing Data: erasure.md
+      - Performance: performance.md
+  - Using the Durable Tier:
+      - Companion Overview: companion.md
+      - Companion Reference: companion_reference.md
+  - Security: security.md
+  - Function Reference: function_reference.md
+  - CLI Reference: cli_reference.md
+  - Troubleshooting: troubleshooting.md
+  - FAQ: faq.md
+  - Release Notes: changelog.md
+  - Developer Resources: developers.md
+  - License: LICENSE.md

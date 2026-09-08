@@ -1,0 +1,63 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    name: PostgreSQL ${{ matrix.pg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # one version failing must not hide the others
+      matrix:
+        pg: ['14', '15', '16', '17', '18', '19']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the full suite
+        run: ./test/run.sh ${{ matrix.pg }}
+
+      - name: Upload logs
+        if: always()            # the logs are the point when it fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-pg${{ matrix.pg }}
+          path: test/logs/
+          if-no-files-found: warn
+
+  companion:
+    name: Companion (PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['14', '15', '16', '17', '18', '19']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Matches companion/go.mod. Both pglogrepl and pgx/v5 declare
+          # go 1.25.0, so the module cannot ask for less.
+          go-version: '1.25'
+          cache-dependency-path: companion/go.sum
+      - name: Vet the companion
+        run: cd companion && go vet ./...
+      - name: Durable tier, end to end
+        run: ./test/companion.sh ${{ matrix.pg }} 5544${{ strategy.job-index }}
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-pg${{ matrix.pg }}
+          path: test/logs/
+          if-no-files-found: warn
+
+  extension:
+    name: CREATE EXTENSION packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and install as an extension
+        run: ./extension/build.sh && ./extension/test.sh

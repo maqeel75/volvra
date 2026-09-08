@@ -1,0 +1,15 @@
+# Documentation build dependencies.
+#
+# Pinned to match the primary pgEdge documentation site
+# (github.com/pgEdge/pgedge-docs), because that is the environment this
+# project's docs are actually built in when the site imports them.
+#
+# The pin also holds MkDocs at 1.x deliberately. The Material for MkDocs
+# team reports that MkDocs 2.0 removes the plugin system and rewrites the
+# theming system, with no migration path. This project uses a theme
+# override (docs/overrides/partials/logo.html), and the primary site uses
+# plugins, so neither survives that change unpinned.
+mkdocs==1.6.1
+mkdocs-material==9.6.17
+mkdocs-material-extensions==1.3.1
+pymdown-extensions==10.16.1
