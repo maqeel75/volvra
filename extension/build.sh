@@ -33,9 +33,39 @@ rm -f "$ROOT"/extension/volvra--*.sql
 
 echo "wrote $OUT ($(wc -l < "$OUT") lines, schema v$SCHEMA_V)"
 
-# Once there is a released version to upgrade *from*, this has to emit
-# volvra--<old>--<new>.sql as well.  The installer is a version-aware migration
-# runner, so such a script can be byte-identical to the install script -- but it
-# has to exist, or an extension-installed database has no upgrade path at all
-# and ALTER EXTENSION UPDATE will refuse.  Nothing is released yet, so there is
-# nothing to upgrade from.
+# Upgrade scripts, one per released version listed in upgrade-from.txt.
+#
+# The installer is a version-aware migration runner -- it reads what a database
+# already has and applies only what is missing -- so an upgrade script can be
+# byte-identical to the install script. It still has to exist under the right
+# name, or ALTER EXTENSION UPDATE refuses with "extension has no update path"
+# and an extension-installed database is stranded on the version it has.
+FROM_LIST="$ROOT/extension/upgrade-from.txt"
+emitted=0
+if [[ -f "$FROM_LIST" ]]; then
+  while read -r from; do
+    from="${from%%#*}"                       # strip comments
+    from="$(echo "$from" | tr -d '[:space:]')"
+    [[ -z "$from" ]] && continue
+    if [[ "$from" == "$VERSION" ]]; then
+      echo "note: skipping $from -- a version cannot upgrade to itself" >&2
+      continue
+    fi
+    UP="$ROOT/extension/volvra--${from}--${VERSION}.sql"
+    {
+      echo "-- Generated from sql/volvra.sql by extension/build.sh -- do not edit."
+      echo "-- Upgrade $from -> $VERSION.  Byte-identical to the install script:"
+      echo "-- the installer applies only the migrations a database is missing."
+      echo
+      echo "\\echo Use \"ALTER EXTENSION volvra UPDATE\" to load this file. \\quit"
+      echo
+      grep -v -e '^\\' -e 'volvra:tx' "$ROOT/sql/volvra.sql"
+    } > "$UP"
+    echo "wrote $UP"
+    emitted=$(( emitted + 1 ))
+  done < "$FROM_LIST"
+fi
+
+if [[ $emitted -eq 0 ]]; then
+  echo "no upgrade scripts: extension/upgrade-from.txt lists no released version"
+fi

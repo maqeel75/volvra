@@ -49,12 +49,16 @@ Volvra provides no down migrations. History is the product, and a
 downgrade that reshaped the history table would risk destroying the
 history Volvra exists to hold.
 
-A database created during Volvra's development may hold an older
-shape. The install repairs those in place, guarded on the shape of the
-table rather than on a version number, and reports a warning naming
-how much history it carried across. The repair copies every row into
-the new table and verifies the row count before dropping the original,
-so a count mismatch aborts the transaction and the original survives.
+Each release adds numbered migrations from where the previous release
+left off, and never reshapes what an existing version already holds.
+The install applies only the migrations a database is missing, which is
+what makes reinstalling the current script over live history safe.
+
+Volvra 0.1.0 is the first release, so it ships one schema version. The
+blocks that repaired databases created during Volvra's development
+were removed at that release; they existed only because development
+changed the shape of the history table several times without releasing
+any of it.
 
 ## Version numbers
 
@@ -71,10 +75,32 @@ would let an internal refactor look like a product release.
 
 ## Upgrading an extension install
 
-The optional extension packaging ships only a base install script, so
-a database installed with `CREATE EXTENSION` has no
-`ALTER EXTENSION UPDATE` path. Upgrade such a database by running
-`sql/volvra.sql` directly, which migrates the schema correctly.
+A database installed with `CREATE EXTENSION` upgrades through
+`ALTER EXTENSION`, not by running the install script:
+
+```sql
+ALTER EXTENSION volvra UPDATE;
+```
+
+Do not run `sql/volvra.sql` against an extension install. The script
+migrates the schema correctly, but PostgreSQL still records the old
+extension version, and a later dump and restore then emits
+`CREATE EXTENSION volvra` at that stale version and loses the changes.
+
+`ALTER EXTENSION UPDATE` needs an upgrade script named for the version
+being left behind, which the packaging build produces for every version
+listed in `extension/upgrade-from.txt`. A release that omits the
+version it supersedes from that list leaves extension installs of it
+with no upgrade path, and `ALTER EXTENSION UPDATE` reports that the
+extension has no update path. Installing the newer packaging does not
+repair that, so the list is part of making a release rather than a
+detail of it.
+
+Confirm which version PostgreSQL believes is installed:
+
+```sql
+SELECT extversion FROM pg_extension WHERE extname = 'volvra';
+```
 
 ## Verifying an upgrade
 

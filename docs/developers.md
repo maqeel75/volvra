@@ -77,8 +77,8 @@ Each version runs the following phases in order:
     code.
 11. The scenario suite covers table shapes, identifiers, schema
     change, foreign keys, partitions, and erasure.
-12. The upgrade suite installs the previous schema, seeds history, and
-    upgrades.
+12. The upgrade suite installs the previous release's schema, seeds
+    history and a seal, then installs the current schema over it.
 
 Per-version logs land in `test/logs/`.
 
@@ -185,6 +185,38 @@ cd extension
 
 The build removes stale generated scripts, because an old script still
 installs.
+
+The build also emits an upgrade script for every version listed in
+`extension/upgrade-from.txt`. An upgrade script is byte-identical to
+the install script, because the installer applies only the migrations
+a database is missing; it still has to exist under the right name, or
+`ALTER EXTENSION UPDATE` refuses and an extension-installed database
+is stranded on the version it has. `extension/test.sh` exercises that
+path against a synthetic older version it creates itself, so the
+machinery is proven before a second release depends on it.
+
+## Releasing
+
+The following steps make a release, in this order:
+
+1. Set `default_version` in `extension/volvra.control` to the new
+    version.
+2. Add the version being superseded to
+    `extension/upgrade-from.txt`, so the build emits an upgrade script
+    from it.
+3. Run `./tools/snapshot-schema.sh`, which freezes the install script
+    as `test/fixtures/volvra-<version>.sql`. The next release's
+    upgrade test uses the snapshot, and the tool refuses to overwrite
+    one, because a released schema never changes.
+4. Run `make -C cli release` and `make -C companion release`, which
+    build the two static binaries per component and their checksums.
+5. Run the full matrix, the examples, and the portability suite.
+6. Tag the release.
+
+Step 3 is the one that is easy to skip and impossible to redo.
+Reconstructing a released schema afterwards is guesswork exactly when
+accuracy matters, and the guess cannot be checked because the release
+it describes is gone.
 
 ## Waiting for a container
 

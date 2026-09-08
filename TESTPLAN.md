@@ -27,7 +27,7 @@ one delivered:
 | 2. Privilege matrix | Done | `test/privileges.sql`, 301 pairs |
 | 3. Concurrency | Done | `test/concurrency.sh`, 21 checks |
 | 4. Crash and recovery | Done | `test/recovery.sh`, 22 checks |
-| 5. Upgrade paths | Largely moot | See the priority 5 section |
+| 5. Upgrade paths | Done | Snapshot tooling, release-to-release test |
 | 6. Scenario coverage | Done | `test/scenarios.sql`, 72 assertions |
 | 7. Scale | Done | `test/scale.sh`, 23 checks |
 
@@ -177,21 +177,43 @@ The following scenarios are covered:
 
 ## Priority 5: upgrade paths
 
-This priority is largely moot as written. It assumed schema versions 1
-through 6 existed; collapsing the pre-release migrations into a single
-`1 | initial schema` means there is one released schema and therefore
-no multi-version upgrade path to fix. The `volvra-v1.sql` fixture and
-`upgrade-verify.sql` still run on every version, which covers
-installing the current schema over an existing one carrying real
-history.
+Done on 2026-09-08, ahead of the first release rather than after it.
 
-What is still owed here, after the first release rather than before
-it:
+The priority as written assumed schema versions 1 through 6 existed.
+Collapsing the pre-release migrations into a single
+`1 | initial schema` left one released schema, so there was no
+multi-version path to fix. What was actually owed was the mechanism,
+and that is now in place:
 
-- a fixture captured per released schema version, added as each
-  release happens rather than reconstructed later.
-- deletion of the pre-release repair block in `sql/volvra.sql`, which
-  exists only to fix databases created during development.
+- **The pre-release repair blocks are gone.** Three of them existed
+  only to fix databases created during development, and they made the
+  install script carry code that could never run again once anything
+  was released. The engine is 78 lines shorter for it.
+- **`tools/snapshot-schema.sh` freezes a release as a fixture.**
+  `test/fixtures/volvra-0.1.0.sql` is the first. Reconstructing a
+  released schema later, from git or from memory, is guesswork exactly
+  when accuracy matters, and the guess is unfalsifiable because the
+  release it describes is gone. The tool refuses to overwrite an
+  existing snapshot, because a released schema never changes.
+- **`test/run.sh` picks the highest-versioned fixture itself**, so
+  adding a snapshot is all it takes to make the upgrade test cover
+  that release.
+- **The upgrade test is now release-to-release.** It seeds real
+  history *and a seal* through the previous release's own capture
+  path, then asserts the version ledger never goes backwards, every
+  row and id survives, the seal chain still verifies with an unchanged
+  head, and an undo driven entirely by pre-upgrade history restores
+  the row. With one release the fixture is the current schema, so this
+  proves reinstalling over live history is safe; it becomes a genuine
+  cross-version upgrade at release 2 with no change to the test.
+- **`ALTER EXTENSION UPDATE` has a tested path.**
+  `extension/build.sh` emits a `volvra--<from>--<to>.sql` for every
+  version in `extension/upgrade-from.txt`, byte-identical to the
+  install script because the installer is a version-aware migration
+  runner. `extension/test.sh` proves the machinery now, against a
+  synthetic older version it fabricates itself, rather than waiting
+  for release 2 to discover that extension-installed databases are
+  stranded.
 
 ## Priority 6: scenario coverage
 

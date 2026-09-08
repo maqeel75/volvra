@@ -1,4 +1,15 @@
 -- =====================================================================
+-- Volvra 0.1.0 -- FROZEN RELEASE SNAPSHOT. Do not edit.
+--
+-- Captured from sql/volvra.sql by tools/snapshot-schema.sh at release
+-- time. Its only purpose is to let a later release prove that
+-- upgrading from 0.1.0 preserves history and leaves a working
+-- engine behind. Editing it makes that proof a fiction.
+--
+-- If 0.1.0 had a bug, the fixture keeps the bug. That is correct:
+-- the databases being upgraded have it too.
+-- =====================================================================
+-- =====================================================================
 -- Volvra — undo for Postgres (v0, trigger tier)
 --
 -- Pure SQL / PL/pgSQL. No C, no superuser, no server filesystem access.

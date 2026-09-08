@@ -235,16 +235,27 @@ for v in "${VERSIONS[@]}"; do
     docker exec "$cname" psql -v ON_ERROR_STOP=1 -U volvra_owner -d volvra_scenarios \
       -f /volvra/test/scenarios.sql
 
-    # Upgrade path: the previous released schema, real history, then the
-    # current schema installed over it twice.
-    echo "### upgrade from v1 ###"
-    su_psql -c "CREATE DATABASE volvra_upgrade"
-    u() { docker exec "$cname" psql -v ON_ERROR_STOP=1 -U postgres -d volvra_upgrade "$@"; }
-    u -f /volvra/test/fixtures/volvra-v1.sql
-    u -f /volvra/test/upgrade-seed.sql
-    u -f /volvra/sql/volvra.sql
-    u -f /volvra/sql/volvra.sql
-    u -f /volvra/test/upgrade-verify.sql
+    # Upgrade path: the newest released schema, real history and a seal, then
+    # the current schema installed over it twice.
+    #
+    # The fixture is picked as the highest-versioned file in test/fixtures,
+    # rather than named here, so adding a release's snapshot is enough to make
+    # this test cover it.
+    echo "### upgrade ###"
+    FIXTURE="$(ls "$ROOT"/test/fixtures/volvra-*.sql 2>/dev/null \
+               | sort -V | tail -1)"
+    if [[ -z "$FIXTURE" ]]; then
+      echo "no release fixture in test/fixtures -- run tools/snapshot-schema.sh"
+    else
+      echo "fixture: $(basename "$FIXTURE")"
+      su_psql -c "CREATE DATABASE volvra_upgrade"
+      u() { docker exec "$cname" psql -v ON_ERROR_STOP=1 -U postgres -d volvra_upgrade "$@"; }
+      u -f "/volvra/test/fixtures/$(basename "$FIXTURE")"
+      u -f /volvra/test/upgrade-seed.sql
+      u -f /volvra/sql/volvra.sql
+      u -f /volvra/sql/volvra.sql
+      u -f /volvra/test/upgrade-verify.sql
+    fi
   } >>"$extra_log" 2>&1
   erc=$?
 
@@ -253,7 +264,7 @@ for v in "${VERSIONS[@]}"; do
   # which is the failure mode this whole suite exists to avoid.
   extra_markers=('VOLVRA NON-SUPERUSER INSTALL PASSED'
                  'ALL VOLVRA SCENARIO CHECKS PASSED'
-                 'VOLVRA UPGRADE FROM V1 PASSED')
+                 'VOLVRA UPGRADE PASSED')
   [[ -n "$CLI_BIN" ]] && extra_markers+=('ALL VOLVRA CLI CHECKS PASSED')
 
   emissing=()

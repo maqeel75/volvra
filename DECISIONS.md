@@ -31,6 +31,27 @@ requires it.
 **If a proposal starts "since we're an extension anyway…", the premise is
 wrong.**
 
+The packaging is pure SQL — two text files, nothing compiled — so one
+generated script serves PostgreSQL 14 through 19 and one checksum covers them
+all. A distribution package is still built per major version, because each
+major version has its own share directory, but every package carries identical
+SQL. The multiplication is in packaging metadata, not in the build.
+
+Three costs come with the extension method, and each is a reason the plain SQL
+path is the supported one:
+
+1. It needs the files on the **database server's** filesystem, so it needs root
+   on that host. That rules out every managed provider, which is the whole
+   reason this decision exists.
+2. The choice is made once per database and cannot be reversed. PostgreSQL
+   removed `CREATE EXTENSION ... FROM unpackaged` in 13, so a plain install can
+   never be adopted into an extension, and the reverse means `DROP EXTENSION`,
+   which drops the history with it.
+3. It updates only through `ALTER EXTENSION UPDATE`, which needs an upgrade
+   script named for the version being left behind. Re-running the plain script
+   against an extension install leaves the recorded version stale, and a later
+   dump and restore loses the changes.
+
 ---
 
 ## The repository stays pgEdge-attributed

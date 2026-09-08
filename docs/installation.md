@@ -96,6 +96,73 @@ psql -c 'CREATE EXTENSION volvra'
 The generated script comes from `sql/volvra.sql`, so the two cannot
 diverge. Nothing in Volvra depends on this packaging.
 
+### The packaging is pure SQL
+
+The extension is two text files, `volvra.control` and
+`volvra--<version>.sql`. Volvra contains no C, so nothing is compiled:
+the Makefile uses PGXS only because PGXS knows where to copy files.
+
+One generated script therefore serves every supported PostgreSQL
+version. The same file installs and runs on 14 through 19, which
+`extension/test.sh` checks on each of them, and one published checksum
+covers them all. A C extension would need a separate build against
+each major version's headers.
+
+What differs per major version is only where the files belong, because
+each major version has its own share directory:
+
+```
+/usr/share/postgresql/14
+/usr/share/postgresql/17
+/usr/share/postgresql/19
+```
+
+A distribution package is therefore built per major version, as
+`volvra_14`, `volvra_15`, and so on, but each package carries the
+identical SQL. The multiplication is in the packaging metadata, not in
+the build.
+
+### Three caveats of the extension method
+
+The extension method carries three costs that the plain SQL method does
+not. Each one is a reason the plain method is the supported path
+everywhere.
+
+First, `CREATE EXTENSION` needs the two files on the **database
+server's** filesystem, which means root or an equivalent on the host
+that runs PostgreSQL. Managed providers give no such access, so this
+method is unavailable on Amazon RDS, Aurora, Google Cloud SQL,
+Supabase, and Neon. This is the reason Volvra ships as plain SQL
+rather than as an extension.
+
+Second, the choice of method is made once per database and cannot be
+reversed. PostgreSQL removed `CREATE EXTENSION ... FROM unpackaged` in
+version 13, so a plain install cannot be adopted into an extension
+afterwards; the attempt reports that the command is no longer
+supported. Running `CREATE EXTENSION volvra` over an existing plain
+install fails as well, reporting that the schema is not a member of the
+extension. Going the other way means `DROP EXTENSION`, which drops the
+history with it. Moving an existing installation between the two
+methods therefore means exporting the history, installing the other
+way, and loading the history back.
+
+Third, an extension install updates only through
+`ALTER EXTENSION volvra UPDATE`, which requires an upgrade script named
+for the versions it moves between. Re-running the plain script against
+an extension install leaves the recorded extension version stale, and a
+later dump and restore then emits `CREATE EXTENSION` at that stale
+version and loses the changes.
+
+The following table describes how each method updates:
+
+| Method | How to update |
+|---|---|
+| Plain SQL | Re-run psql -f sql/volvra.sql. The script applies only the migrations the database is missing, in one transaction. |
+| Extension | Run ALTER EXTENSION volvra UPDATE, which needs the upgrade script for the version being left behind. |
+
+Prefer the plain method unless you are packaging Volvra for a
+distribution.
+
 ## Verifying the download
 
 Volvra installs as a file rather than a signed package, so verifying

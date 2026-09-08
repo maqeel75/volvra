@@ -26,6 +26,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Coverage that survives ALTER TABLE RENAME and SET SCHEMA, because a
   covered table is identified by its relation identifier rather than
   by name.
+- An extension upgrade path. `extension/build.sh` emits an upgrade
+  script for every version in `extension/upgrade-from.txt`, so
+  `ALTER EXTENSION UPDATE` works from any released version.
+- `tools/snapshot-schema.sh`, which freezes a release's install script
+  as the fixture the next release's upgrade test runs against.
 - Schema-wide coverage with `volvra.enable_all`, plus coverage gap
   reporting with `volvra.uncovered`.
 - Monthly partitioning of the history, with partition-dropping
