@@ -436,7 +436,9 @@ INSERT INTO volvra.settings(key, value) VALUES
   -- update with an identity inverse is not history anyone can use.
   ('capture_no_op_updates', 'off'),
   -- The largest span volvra.seal() will hash in one call.  Sealing walks the
-  -- span row by row, so this bounds how long one seal can take.
+  -- span row by row, so this bounds how long one seal can take.  A longer
+  -- backlog is sealed in batches over successive calls, never refused: see
+  -- volvra.seal().
   ('seal_max_rows', '1000000'),
   -- Name of the logical replication slot the companion reads.
   ('companion_slot', 'volvra_companion'),
@@ -1705,6 +1707,23 @@ AS $$
     CASE WHEN guarded THEN ' ON CONFLICT DO NOTHING' ELSE '' END)
 $$;
 
+-- Why the key comparisons in these builders are `=` and not
+-- `IS NOT DISTINCT FROM`
+--
+-- IS NOT DISTINCT FROM is NULL-safe, which looks like the careful choice, and
+-- it is not indexable: PostgreSQL cannot use a btree index for it, so every
+-- statement built here degraded to a sequential scan of the target table.
+-- The conflict probe runs one statement per row, so that is quadratic in table
+-- size -- invisible on the thousands of rows the other suites use, and fatal
+-- on real data.  A 200,000-row preview was still running after two minutes at
+-- full CPU, having done 200,000 sequential scans.
+--
+-- Plain equality is correct here because these columns are a PRIMARY KEY, and
+-- a primary key column cannot be NULL.  The NULL-safety bought nothing and
+-- cost the index.
+--
+-- This applies to the key only.  The guard that compares captured values
+-- against live ones still uses jsonb containment, which is NULL-correct.
 CREATE OR REPLACE FUNCTION volvra._stmt_delete(
   v_tbl text, v_pkcols text[], pk_img jsonb, expected jsonb)
 RETURNS text
@@ -1714,7 +1733,7 @@ AS $$
   SELECT format(
     'DELETE FROM %s AS tgt USING jsonb_populate_record(NULL::%s, %L::jsonb) AS k WHERE %s%s',
     v_tbl, v_tbl, pk_img,
-    (SELECT string_agg(format('tgt.%1$I IS NOT DISTINCT FROM k.%1$I', c), ' AND ')
+    (SELECT string_agg(format('tgt.%1$I = k.%1$I', c), ' AND ')
      FROM unnest(v_pkcols) AS c),
     -- Containment, not equality: the guard asserts that the values this
     -- statement is about to revert are still the ones that were captured.  A
@@ -1746,7 +1765,7 @@ AS $$
     (SELECT string_agg(format('%1$I = src.%1$I', c), ', ') FROM unnest(v_cols) AS c),
     v_tbl, old_img,
     v_tbl, key_img,
-    (SELECT string_agg(format('tgt.%1$I IS NOT DISTINCT FROM k.%1$I', c), ' AND ')
+    (SELECT string_agg(format('tgt.%1$I = k.%1$I', c), ' AND ')
      FROM unnest(v_pkcols) AS c),
     CASE WHEN expected IS NULL THEN ''
          ELSE format(' AND to_jsonb(tgt) @> %L::jsonb', expected) END)
@@ -1763,7 +1782,7 @@ AS $$
     'SELECT to_jsonb(tgt) FROM %s AS tgt, jsonb_populate_record(NULL::%s, %L::jsonb) AS k '
     'WHERE %s',
     v_tbl, v_tbl, pk_img,
-    (SELECT string_agg(format('tgt.%1$I IS NOT DISTINCT FROM k.%1$I', c), ' AND ')
+    (SELECT string_agg(format('tgt.%1$I = k.%1$I', c), ' AND ')
      FROM unnest(v_pkcols) AS c))
 $$;
 
@@ -1880,16 +1899,25 @@ DECLARE
   v_i        bigint := 0;
   v_step     volvra.undo_step;
   v_live     jsonb;
-  v_seen     jsonb := '{}'::jsonb;   -- rows already probed, newest change first
   v_cols     text[];
   v_setcols  text[];
   v_upcols   text[];
   v_pkcols   text[];
   r          record;
 BEGIN
+  -- `newest` marks the most recent change to each row within this selection,
+  -- which is the only change whose captured values can be compared against the
+  -- live row.  It is computed here rather than accumulated in a loop variable:
+  -- the previous version kept a jsonb object of every row it had seen and grew
+  -- it by concatenation, one key per change.  jsonb concatenation copies the
+  -- whole object, so that was quadratic in bytes copied -- around 500 GB of
+  -- memcpy for a 200,000-row plan, which took over twenty minutes and looked
+  -- like a hang.  A window function costs one sort.
   FOR r IN EXECUTE format(
     'SELECT c.id, c.table_name, c.op, c.pk, c.old_row, c.new_row, '
-    '       c.actor, c.db_user, c.ts '
+    '       c.actor, c.db_user, c.ts, '
+    '       (row_number() OVER (PARTITION BY c.table_name, c.pk '
+    '                           ORDER BY c.id DESC) = 1) AS newest '
     'FROM volvra.change_log c WHERE %s ORDER BY c.id DESC', v_where)
   LOOP
     -- A TRUNCATE whose rows were never captured cannot be inverted, and
@@ -1976,12 +2004,10 @@ BEGIN
       -- Older changes to the same row are reached only after the newer ones
       -- have been reverted, at which point the state matches by construction,
       -- so probing them against the *current* row reports conflicts that will
-      -- not happen.  The plan walks newest first, so the first sighting of a
-      -- row is the one to check.
-      IF v_seen ? (r.table_name || '|' || r.pk::text) THEN
+      -- not happen.
+      IF NOT r.newest THEN
         v_step.conflict := false;
       ELSE
-        v_seen := v_seen || jsonb_build_object(r.table_name || '|' || r.pk::text, true);
         EXECUTE volvra._stmt_probe(r.table_name, v_pkcols, r.pk) INTO v_live;
         v_step.conflict := CASE
           WHEN r.op = 'D' THEN v_live IS NOT NULL        -- should still be gone
@@ -3003,11 +3029,20 @@ BEGIN
     RETURN;                       -- nothing new to seal
   END IF;
 
+  -- seal_max_rows bounds how long ONE call may take, so a span longer than it
+  -- is sealed in batches rather than refused.  Refusing was the original
+  -- behaviour and it was a trap: once a database accumulated more than
+  -- seal_max_rows of unsealed history -- a million changes by default -- every
+  -- seal() raised, and because maintain() calls seal() inside a single
+  -- transaction, the whole maintenance run aborted.  Partition creation and
+  -- retention were rolled back with it, so disk grew without bound and the
+  -- cause was a limit on sealing.  Sealing now always makes progress, and
+  -- repeated calls catch up.
   IF v_to - v_from + 1 > v_cap THEN
-    RAISE EXCEPTION 'volvra.seal: % changes to seal exceeds seal_max_rows of %',
-      v_to - v_from + 1, v_cap
-      USING HINT = 'Seal more often, or raise seal_max_rows deliberately.',
-            ERRCODE = 'program_limit_exceeded';
+    v_to := v_from + v_cap - 1;
+    RAISE NOTICE 'volvra.seal: sealing % change(s) up to id %; more remain, '
+                 'call seal() again to continue',
+                 v_cap, v_to;
   END IF;
 
   SELECT * INTO v_span FROM volvra._hash_span(v_from, v_to);

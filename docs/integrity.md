@@ -37,7 +37,10 @@ calling the function repeatedly is harmless. `volvra.maintain`
 includes a seal, which is the recommended way to schedule one.
 
 The `seal_max_rows` setting bounds how large a span one call will
-hash, because sealing walks the span row by row.
+hash, because sealing walks the span row by row. A longer backlog is
+sealed in batches over successive calls rather than refused, so a
+database that has gone unsealed for a long time still catches up one
+call at a time.
 
 ## Verifying the history
 

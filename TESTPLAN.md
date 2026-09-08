@@ -11,14 +11,15 @@ The following table describes the current baseline:
 
 | Measure | Value |
 |---|---|
-| SQL assertions | 374 across 10 suites, in two privilege contexts |
+| SQL assertions | 379 across 10 suites, in two privilege contexts |
 | Privilege pairs | 301, asserted in both directions |
-| Shell checks | 79 across CLI, concurrency, and recovery |
+| Shell checks | 116 across CLI, concurrency, recovery, and scale |
 | PostgreSQL versions | 14, 15, 16, 17, 18, 19beta1 |
+| Linux distributions | 11, via `test/portability.sh` |
 | Public functions | 44 |
 
-Priorities 1 through 4 and 6 are complete. The following table
-describes what each one delivered:
+Every priority is complete. The following table describes what each
+one delivered:
 
 | Priority | State | Where |
 |---|---|---|
@@ -28,7 +29,7 @@ describes what each one delivered:
 | 4. Crash and recovery | Done | `test/recovery.sh`, 22 checks |
 | 5. Upgrade paths | Largely moot | See the priority 5 section |
 | 6. Scenario coverage | Done | `test/scenarios.sql`, 72 assertions |
-| 7. Scale | Open | - |
+| 7. Scale | Done | `test/scale.sh`, 23 checks |
 
 ## The central gap
 
@@ -279,14 +280,85 @@ reasons rather than assertions:
 
 ## Priority 7: scale
 
-Everything runs on thousands of rows. Add a scale suite, run on demand
-rather than in the matrix:
+Done on 2026-09-08. `test/scale.sh` runs on demand, defaults to one
+million rows on PostgreSQL 17, and prints timings for information
+without asserting on them, because a laptop under Docker is not a
+benchmark.
 
-- an undo of one million rows against the blast-radius cap.
-- `volvra.seal()` against `seal_max_rows`, and past it.
-- history growth across enough partitions that retention drops
-  several.
-- `volvra.storage()` and `volvra.activity()` against a large history.
+This priority found **three engine defects**, two of them quadratic and
+one that could stop retention from running at all. None was visible
+below roughly fifty thousand rows, which is why every other suite
+missed them.
+
+**Two quadratic defects in `volvra._plan()`**, which both
+`preview_undo` and `undo` go through:
+
+- the statement builders compared primary-key columns with
+  `IS NOT DISTINCT FROM`. That is NULL-safe and **not indexable**, so
+  every conflict probe was a sequential scan of the target table, one
+  per row. Now plain `=`, which is correct because a primary key column
+  cannot be NULL: the NULL-safety bought nothing and cost the index.
+- the dedup that decides which change is the newest for its row kept a
+  jsonb object of every row already seen and grew it by concatenation.
+  **jsonb concatenation copies the whole object**, so a 200,000-row
+  plan copied roughly 500 GB and ran for over twenty minutes, looking
+  like a hang. Now a window function in the driving query.
+
+Measured on 200,000 rows, before and after: a preview went from over
+twenty-two minutes, never observed to finish, to **19 seconds**; the
+undo it enables takes **22 seconds**.
+
+**`seal()` refused a backlog instead of sealing a batch.** The
+`seal_max_rows` setting is documented as the largest span one call will
+hash, which describes batching. The implementation raised
+`program_limit_exceeded` instead, and because `volvra.maintain` calls
+`seal()` inside a single transaction, one over-limit seal aborted the
+whole maintenance run and **rolled back partition creation and
+retention with it**. A database that crossed a million unsealed
+changes would stop provisioning partitions and stop applying retention,
+growing disk without bound, with a limit on *sealing* as the cause, and
+recover only when an operator noticed and raised the setting by hand.
+`seal()` now caps the span, reports through a notice that more remains,
+and catches up over successive calls. The suite asserts both the
+batching and that `maintain()` survives a backlog over the limit.
+
+The following scenarios are covered:
+
+- an undo of one million rows against the blast-radius cap, refused at
+  the cap and completing when the cap is raised deliberately.
+- `volvra.seal()` at and past `seal_max_rows`, including that repeated
+  calls make progress, produce no overlapping spans, and still verify.
+- `TRUNCATE` refused above `truncate_capture_max_rows`.
+- history across twelve past months, with retention dropping whole
+  partitions rather than deleting rows.
+- every reporting function against a large history, including that
+  `volvra.storage()` reports a real size for the partitioned parent.
+
+Four of the suite's own assertions could not fail when first written,
+and each reported success while measuring state the suite had not
+created. They are recorded here because the same mistake was made four
+times:
+
+- an archive tamper check ran against a manifest holding zero
+  segments, so nothing was verified.
+- "no back-dated rows in the default partition" is true both when the
+  rows are placed correctly and when no rows exist at all.
+- "thirteen month partitions exist" passed while the section that
+  creates them did nothing, because the install provisions a year
+  ahead. Only partitions older than the retention cutoff are
+  countable evidence.
+- a `pg_total_relation_size()` assertion of `>= 0`, which no value can
+  fail.
+
+The rule the suite now follows: assert the fixture is non-trivial
+before asserting anything about it.
+
+One more failure was neither the product nor an assertion.
+`docker exec` needs `-i` to accept a heredoc; without it psql is handed
+no stdin and exits silently, with no output and nothing in the log. The
+block creating the past partitions and the back-dated history did
+nothing for two runs. Every suite has a `sql()` helper that passes
+`-i`; use it rather than a bare `docker exec`.
 
 ## How to run it
 
@@ -298,10 +370,10 @@ separate because they need special setup or a long run:
 ./test/run.sh                  # 6 versions, both privilege contexts
 ./test/run-companion.sh        # durable tier, 6 versions
 ./test/examples.sh             # the six documented examples, 6 versions
+./test/scale.sh 17 1000000     # limits at size, on demand
 # scenarios run inside ./test/run.sh, in a database of their own
 ./test/concurrency.sh 17       # parallel sessions
 ./test/recovery.sh 17          # crash and restart
-./test/scale.sh 17             # large volumes, on demand
 ./test/bench.sh 17 20 3        # cost, on demand
 ```
 

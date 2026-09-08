@@ -541,5 +541,87 @@ DO $$ BEGIN
 END $$;
 SELECT volvra.set_setting('capture_updates', 'changed');
 
+-- ---------------------------------------------------------------------
+\echo '=== P1.11 several changes to one row are not false conflicts ==='
+
+-- A row changed twice inside the window has two entries in the plan. Only the
+-- newest can be compared against the live row: the older one's captured
+-- "after" image is the intermediate value, which by definition no longer
+-- matches, so probing it reports a conflict that will not happen.
+--
+-- This is a regression test for a real defect, and for the fix that replaced
+-- its fix: the dedup was first done by accumulating every row already seen
+-- into a jsonb object, which was quadratic and made a large preview look like
+-- a hang. It is now a window function over the plan query. Both must agree,
+-- and this is what says so.
+DROP TABLE IF EXISTS multi;
+CREATE TABLE multi (id int PRIMARY KEY, v int, note text);
+SELECT volvra.enable('multi');
+INSERT INTO multi VALUES (1, 1, 'a'), (2, 1, 'a');
+
+SELECT clock_timestamp() AS m0 \gset
+SELECT pg_sleep(0.05);
+UPDATE multi SET v = 2;                    -- intermediate
+SELECT pg_sleep(0.05);
+UPDATE multi SET v = 3;                    -- current
+SELECT set_config('test.m0', :'m0', false);
+
+\echo '--- the plan holds two changes per row, and none is a conflict ---'
+SELECT seq, pk, op, conflict
+FROM volvra.preview_undo('multi', current_setting('test.m0')::timestamptz, now());
+
+DO $$
+DECLARE v_rows bigint; v_conf bigint;
+BEGIN
+  SELECT count(*), count(*) FILTER (WHERE conflict)
+    INTO v_rows, v_conf
+  FROM volvra.preview_undo('multi',
+         current_setting('test.m0')::timestamptz, now());
+  ASSERT v_rows = 4, format('two rows changed twice gives 4 steps, got %s', v_rows);
+  ASSERT v_conf = 0,
+         format('none of them is a conflict, got %s -- the older change to each '
+                'row was probed against the live row', v_conf);
+END $$;
+
+\echo '--- and the undo walks both changes back to the original ---'
+SELECT count(*) FROM volvra.undo('multi',
+  current_setting('test.m0')::timestamptz, now(), confirm => true);
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM multi WHERE v = 1) = 2,
+         'both rows are back at their original value, not the intermediate one';
+END $$;
+
+\echo '--- a genuine conflict on such a row is still caught ---'
+UPDATE multi SET v = 1;                    -- back to a known state
+SELECT clock_timestamp() AS m1 \gset
+SELECT pg_sleep(0.05);
+UPDATE multi SET v = 2;
+SELECT pg_sleep(0.05);
+UPDATE multi SET v = 3;
+SELECT clock_timestamp() AS m1end \gset
+SELECT set_config('test.m1', :'m1', false);
+SELECT set_config('test.m1end', :'m1end', false);
+-- Someone else moves row 1 after the window closes.  An explicit end bound is
+-- required: "m1 + 1 second" put this update inside the window, where reverting
+-- it is correct and no conflict arises -- the assertion failed for a reason
+-- that had nothing to do with what it was testing.
+SELECT pg_sleep(0.05);
+UPDATE multi SET v = 99 WHERE id = 1;
+
+DO $$
+DECLARE v_conf bigint; v_conf1 bigint;
+BEGIN
+  SELECT count(*) FILTER (WHERE conflict),
+         count(*) FILTER (WHERE conflict AND pk = '{"id": 1}'::jsonb)
+    INTO v_conf, v_conf1
+  FROM volvra.preview_undo('multi',
+         current_setting('test.m1')::timestamptz,
+         current_setting('test.m1end')::timestamptz);
+  ASSERT v_conf1 = 1,
+         format('the row that moved is flagged exactly once, got %s', v_conf1);
+  ASSERT v_conf = 1,
+         format('and the row that did not move is not flagged, got %s total', v_conf);
+END $$;
+
 \echo ''
 \echo '*** ALL VOLVRA PHASE 1 CHECKS PASSED ***'

@@ -13,6 +13,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 VERSIONS=("$@")
 [[ ${#VERSIONS[@]} -eq 0 ]] && VERSIONS=(14 15 16 17 18 19)
 
@@ -33,9 +34,12 @@ for v in "${VERSIONS[@]}"; do
   docker rm -f "$C" >/dev/null 2>&1
   docker run -d --name "$C" -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ex \
     -v "$ROOT:/volvra:ro" "$img" >/dev/null 2>&1
-  for _ in $(seq 1 60); do
-    docker exec "$C" pg_isready -U postgres -d ex >/dev/null 2>&1 && break; sleep 1
-  done
+  if ! volvra_wait_ready "$C" ex; then
+    echo "  ✗ server never became ready -- not a product failure"
+    FAIL+=("$v (not ready)")
+    docker rm -f "$C" >/dev/null 2>&1
+    continue
+  fi
 
   q() { docker exec "$C" psql -tA -U postgres -d ex -c "$1" 2>/dev/null | tr -d '[:space:]'; }
   run_example() { docker exec "$C" psql -U postgres -d ex -f "/volvra/examples/$1" >>"$log" 2>&1; }

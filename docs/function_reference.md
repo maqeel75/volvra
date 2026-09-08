@@ -390,8 +390,15 @@ the previous seal. Requires membership in `volvra_admin`.
 
 The function takes no arguments and returns `seal_id`, `from_id`,
 `to_id`, `row_count`, and `chain_hash`. The function returns no rows
-when nothing new has been captured, and raises
-`program_limit_exceeded` when the span exceeds `seal_max_rows`.
+when nothing new has been captured.
+
+A backlog longer than `seal_max_rows` is sealed in batches rather than
+refused. The function seals up to the limit, reports through a notice
+that more remains, and catches up over successive calls. Sealing
+therefore always makes progress, which matters because
+`volvra.maintain` calls this function inside a single transaction: a
+refusal would abort partition maintenance and retention along with the
+seal.
 
 ### volvra.verify
 

@@ -15,6 +15,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 VER="${1:-17}"
 PORT="${2:-55432}"
 IMG="postgres:$VER"; [[ "$VER" == "19" ]] && IMG="postgres:19beta1"
@@ -42,9 +43,7 @@ printf '=== D0. a server with wal_level=logical ===\n'
 docker run -d --name "$C" -e POSTGRES_PASSWORD=c -e POSTGRES_DB=app \
   -p "$PORT:5432" -v "$ROOT:/volvra:ro" "$IMG" \
   -c wal_level=logical -c max_replication_slots=4 -c max_wal_senders=4 >/dev/null
-for _ in $(seq 1 60); do
-  docker exec "$C" pg_isready -U postgres -d app >/dev/null 2>&1 && break; sleep 1
-done
+volvra_wait_ready "$C" app || { echo "server never became ready -- not a product failure" >&2; exit 2; }
 [[ "$(q -c 'SHOW wal_level')" == "logical" ]] && ok "wal_level=logical" || bad "wal_level=logical"
 
 qq -f /volvra/sql/volvra.sql >/dev/null 2>&1

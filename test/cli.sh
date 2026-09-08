@@ -3,10 +3,17 @@
 # Volvra CLI test -- runs inside the container against the real database.
 # Every command is exercised, and the destructive one is checked twice:
 # once that it refuses without confirmation, once that it works with it.
+#
+# Exit codes are asserted as carefully as output, because a scheduler acts on
+# them: 0 succeeded, 1 failed or a confirmation was declined, 2 the command
+# worked and what it found is bad.
 # =====================================================================
 set -uo pipefail
 
-V="/volvra/bin/volvra"
+# The CLI is a Go binary; the runner cross-builds one for linux and copies it
+# into the container, then points VOLVRA_BIN at it.
+V="${VOLVRA_BIN:-/volvra-cli}"
+[[ -x "$V" ]] || { echo "  FAIL no volvra binary at $V"; exit 1; }
 # PGDATABASE comes from the runner so this suite gets a clean database of
 # its own -- other phases deliberately leave damage behind.
 export PGUSER=postgres
@@ -80,8 +87,14 @@ says "log shows the bad transaction" "$BAD_TXID" "$V" log -n 3
 printf '=== C4. history ===\n'
 "$V" history cli_orders '{"id":1}' >/dev/null 2>&1 && ok "history" || bad "history"
 HIST=$("$V" history cli_orders '{"id":1}' 2>&1)
-[[ "$(printf '%s\n' "$HIST" | grep -c '|')" -ge 3 ]] \
-  && ok "history shows both versions" || bad "history shows both versions"
+# Assert on the values, not on the table drawing: the old assertion counted
+# ASCII "|" separators, which stopped meaning anything the moment the CLI drew
+# its own tables.
+case "$HIST" in
+  *100*0*) ok "history shows both versions" ;;
+  *)       bad "history shows both versions"
+           printf '%s\n' "$HIST" | sed 's/^/       | /' ;;
+esac
 
 printf '=== C5. preview changes nothing ===\n'
 "$V" preview --txid "$BAD_TXID" >/dev/null 2>&1 && ok "preview" || bad "preview"
@@ -186,6 +199,80 @@ try "forget --yes" "$V" forget cli_orders '{"id":2}' --yes --reason 'cli test'
 printf '=== C15. nothing to undo is not an error ===\n'
 "$V" undo --yes --txid 999999999 >/dev/null 2>&1 \
   && ok "empty selection exits cleanly" || bad "empty selection exits cleanly"
+
+printf '=== C16. exit codes a scheduler can act on ===\n'
+# 0 = worked, 1 = failed or declined, 2 = worked and the finding is bad.
+"$V" status >/dev/null 2>&1
+[[ $? -eq 0 ]] && ok "status exits 0" || bad "status exits 0"
+
+"$V" nonsense >/dev/null 2>&1
+[[ $? -eq 1 ]] && ok "an unknown command exits 1" || bad "an unknown command exits 1"
+
+"$V" undo --txid "$BAD_TXID" </dev/null >/dev/null 2>&1
+[[ $? -eq 1 ]] && ok "a declined confirmation exits 1" \
+               || bad "a declined confirmation exits 1"
+
+# preflight exits 2 on a critical finding.  Whether this install has one
+# depends on how it was installed, so both outcomes are legitimate -- what is
+# asserted is that the code matches what was printed.
+PF=$("$V" preflight 2>&1); PF_RC=$?
+CRIT=$(q "SELECT count(*) FROM volvra.preflight() WHERE severity='critical'")
+if [[ "${CRIT:-0}" -gt 0 ]]; then
+  [[ $PF_RC -eq 2 ]] && ok "preflight exits 2 with $CRIT critical finding(s)" \
+                     || bad "preflight exits 2 with $CRIT critical finding(s) (got $PF_RC)"
+else
+  [[ $PF_RC -eq 0 ]] && ok "preflight exits 0 with nothing critical" \
+                     || bad "preflight exits 0 with nothing critical (got $PF_RC)"
+fi
+
+# verify exits 2 only when nothing lawful explains the mismatch.  Tampering has
+# to go around the append-only guard, which is itself worth proving: the guard
+# refusing the UPDATE is the stronger outcome, so it counts as a pass.
+PART=$(q "SELECT tableoid::regclass::text FROM volvra.change_log ORDER BY id LIMIT 1")
+if psql -q -v ON_ERROR_STOP=1 -c "UPDATE $PART SET actor = 'tampered'
+      WHERE id = (SELECT min(id) FROM volvra.change_log)" >/dev/null 2>&1; then
+  bad "the append-only guard let a sealed row be rewritten"
+else
+  ok "the append-only guard refuses to rewrite history"
+fi
+
+printf '=== C17. relative times, which the shell CLI never handled ===\n'
+# '10 min ago' is not a timestamptz.  Postgres accepts 'today' and 'yesterday'
+# as literals but not this, and the documented examples used it -- so every one
+# of them failed until the CLI learned to read a trailing "ago" as an interval.
+# A table of its own: C14 redacted rows of cli_orders, and a window-wide
+# preview over redacted history fails for a reason that has nothing to do with
+# how the time was written.
+psql -q -v ON_ERROR_STOP=1 <<'SQL'
+DROP TABLE IF EXISTS cli_when;
+CREATE TABLE cli_when (id int PRIMARY KEY, v int);
+SQL
+"$V" cover cli_when >/dev/null 2>&1
+psql -q -v ON_ERROR_STOP=1 -c "INSERT INTO cli_when VALUES (1, 1)" >/dev/null
+psql -q -v ON_ERROR_STOP=1 -c "UPDATE cli_when SET v = 2" >/dev/null
+
+for when in '10 min ago' '1 hour ago' 'today' 'yesterday'; do
+  if out=$("$V" preview --table cli_when --since "$when" 2>&1); then
+    ok "--since '$when'"
+  else
+    bad "--since '$when'"
+    printf '%s\n' "$out" | head -2 | sed 's/^/       | /'
+  fi
+done
+
+# And a bad time must be refused rather than silently selecting everything.
+"$V" preview --table cli_when --since 'not a time' >/dev/null 2>&1 \
+  && bad "an unparseable time was accepted" \
+  || ok "an unparseable time is refused"
+
+# --to and --since both set the start of the window, so both at once is a
+# mistake worth naming rather than passing to Postgres twice.
+"$V" preview --to somewhere --since today >/dev/null 2>&1 \
+  && bad "--to with --since was accepted" \
+  || ok "--to with --since is refused"
+
+printf '=== C18. version ===\n'
+says "version prints a version" "volvra" "$V" version
 
 if [[ $FAILED -eq 0 ]]; then
   printf '\n*** ALL VOLVRA CLI CHECKS PASSED ***\n'

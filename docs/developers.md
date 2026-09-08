@@ -10,12 +10,32 @@ The following table describes the top-level directories:
 | Path | Contents |
 |---|---|
 | sql/volvra.sql | The whole engine, as one installable SQL file. |
-| bin/volvra | The command line script, written in shell over psql. |
+| cli/ | The command line tool, a Go binary with no runtime dependencies. |
 | companion/ | The durable tier, written in Go. |
 | extension/ | Optional CREATE EXTENSION packaging, generated. |
 | test/ | Test suites and their runners. |
 | tools/ | Release helpers. |
 | docs/ | This documentation. |
+
+## Building the command line tool
+
+The tool needs the Go toolchain, version 1.25 or later:
+
+```bash
+make -C cli
+```
+
+Install the tool, or cross-build the tool for a container:
+
+```bash
+sudo make -C cli install
+make -C cli linux
+```
+
+The test runner cross-builds the tool itself and copies the binary
+into each container, so a Go toolchain is required to test the tool. A
+machine without Go still runs every other suite, and the runner
+reports the command line suite as skipped rather than passed.
 
 ## Building the companion
 
@@ -51,11 +71,60 @@ Each version runs the following phases in order:
 6. The scope suite covers transaction, predicate, and actor selection.
 7. The scale suite covers partitioning, retention, and observability.
 8. The trust suite attacks sealing, erasure, and column exclusion.
-9. The command line suite exercises every command.
-10. The upgrade suite installs the previous schema, seeds history, and
+9. The privilege matrix asserts both directions for every role and
+   function pair.
+10. The command line suite exercises every command and every exit
+    code.
+11. The scenario suite covers table shapes, identifiers, schema
+    change, foreign keys, partitions, and erasure.
+12. The upgrade suite installs the previous schema, seeds history, and
     upgrades.
 
 Per-version logs land in `test/logs/`.
+
+## Running the concurrency and recovery suites
+
+Two suites drive more than one session at a time, because the
+properties most likely to be wrong are the ones written for concurrent
+access and for failure:
+
+```bash
+./test/concurrency.sh      # 14 15 16 17 18 19
+./test/recovery.sh 17
+```
+
+The concurrency suite runs parallel `psql` sessions against one
+database. The recovery suite crashes the server with
+`pg_ctl -m immediate` mid-undo, mid-seal, mid-purge, and mid-install,
+kills the companion with `SIGKILL` mid-segment, and fills a one
+megabyte tmpfs to exhaust an archive filesystem.
+
+Both suites exercise the companion when a Linux binary is available,
+and skip those scenarios loudly when one is not:
+
+```bash
+GOOS=linux go build -C companion -o /tmp/volvra-companion .
+export VOLVRA_COMPANION_BIN=/tmp/volvra-companion
+```
+
+## Running the scale suite
+
+The scale suite pushes the limits Volvra advertises past their
+thresholds, which no other suite does. The suite runs on demand, takes
+several minutes, and prints timings for information without asserting
+on them:
+
+```bash
+./test/scale.sh                # PostgreSQL 17, one million rows
+./test/scale.sh 17 200000      # smaller, for a quick check
+```
+
+The suite asserts that a million-row undo is refused by the
+blast-radius cap and completes when the cap is raised deliberately,
+that `volvra.seal` stops at `seal_max_rows` and makes progress across
+repeated calls, that `TRUNCATE` is refused above
+`truncate_capture_max_rows`, and that retention drops whole partitions
+rather than deleting rows.
 
 ## Running the companion suite
 
@@ -117,11 +186,33 @@ cd extension
 The build removes stale generated scripts, because an old script still
 installs.
 
+## Waiting for a container
+
+Every suite waits for its container through `volvra_wait_ready` in
+`test/lib.sh`, which requires a real query to succeed twice in a row.
+`pg_isready` alone is not enough: the PostgreSQL image starts a
+temporary server so that initialisation scripts can run, and
+`pg_isready` answers yes during that window. A suite that trusted the
+answer connected too early and reported fifteen product failures when
+the real problem was a server that had not finished starting.
+
+A suite whose container never becomes ready aborts and prints the
+container log, rather than running assertions against a database that
+is not there.
+
 ## Continuous integration
 
-The GitHub Actions workflow runs the main suite, the companion suite,
-and the extension packaging, with one job per PostgreSQL version and
+The GitHub Actions workflow runs the main suite, the examples, the
+concurrency suite, the recovery suite, the companion suite, and the
+extension packaging, with one job per PostgreSQL version and
 `fail-fast` disabled so one version cannot hide the others.
+
+The workflow runs on demand only, through the Actions tab or
+`workflow_dispatch`. Six PostgreSQL versions across six suites is
+thirty-one jobs, each starting its own containers, which is a real
+bill for a project whose suites are run locally before every commit.
+Restore the `push` and `pull_request` triggers in
+`.github/workflows/test.yml` to change that.
 
 ## Testing conventions
 

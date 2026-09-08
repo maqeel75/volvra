@@ -99,7 +99,7 @@ FROM volvra.history('orders', '{"id":1}');
 
 ## Using the command line
 
-The `bin/volvra` script wraps the same functions and asks for
+The `volvra` command line tool wraps the same functions and asks for
 confirmation before it changes anything:
 
 ```bash

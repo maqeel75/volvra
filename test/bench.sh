@@ -16,6 +16,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 VER="${1:-17}"
 SECS="${2:-10}"
 REPS="${3:-2}"
@@ -31,9 +32,7 @@ trap cleanup EXIT
 echo "▶ $IMG · ${SECS}s x ${REPS} reps (best of) · ${CLIENTS} clients · ${ROWS} rows"
 docker run -d --name "$C" -e POSTGRES_PASSWORD=b -e POSTGRES_DB=bench \
   -v "$ROOT:/volvra:ro" "$IMG" >/dev/null
-for _ in $(seq 1 60); do
-  docker exec "$C" pg_isready -U postgres -d bench >/dev/null 2>&1 && break; sleep 1
-done
+volvra_wait_ready "$C" bench || { echo "server never became ready -- not a benchmark result" >&2; exit 2; }
 
 # -i matters: without it a heredoc never reaches psql and the fixtures are
 # silently never created.

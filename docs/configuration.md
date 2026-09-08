@@ -103,7 +103,7 @@ evidence:
 
 | Setting | Default | Description |
 |---|---|---|
-| seal_max_rows | 1000000 | The largest span volvra.seal will hash in one call. Sealing walks the span row by row, so this bounds how long one seal takes. |
+| seal_max_rows | 1000000 | The largest span volvra.seal will hash in one call. A longer backlog is sealed in batches over successive calls, never refused. |
 
 ## Role settings
 

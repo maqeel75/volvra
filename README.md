@@ -105,7 +105,7 @@ SELECT * FROM volvra.preview_undo_txid(848291);
 SELECT * FROM volvra.undo_txid(848291, confirm => true);
 ```
 
-The command line script shows the plan, asks once, and then applies:
+The command line tool shows the plan, asks once, and then applies:
 
 ```bash
 volvra log -n 5

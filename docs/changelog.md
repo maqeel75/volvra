@@ -45,7 +45,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `volvra-companion` durable tier, which archives change data to
   customer-owned storage through a logical replication slot, with
   archive verification, restore, and a slot-lag safety valve.
-- A command line script that previews, confirms, and then applies.
+- A command line tool that previews, confirms, and then applies,
+  distributed as a single Go binary with no runtime dependencies. The
+  tool sends every user-supplied value as a bind parameter, exits 2
+  when `preflight` or `verify` finds something wrong, and reads a
+  trailing `ago` in a time so that `--since '10 min ago'` works.
 - Optional `CREATE EXTENSION` packaging for self-hosted users,
   generated from the same SQL file.
 

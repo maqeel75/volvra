@@ -28,6 +28,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 CONTEXTS=(owner super)
 VERSIONS=()
@@ -61,6 +62,34 @@ MARKERS=(
 PASS=(); FAIL=()
 LOGDIR="$ROOT/test/logs"; mkdir -p "$LOGDIR"
 
+# The CLI is a Go binary now, so it has to be cross-built for the container
+# before any version runs.  Built once and reused: the binary does not depend
+# on the server version.
+#
+# A missing Go toolchain skips the CLI suite loudly rather than quietly -- the
+# CLI is a shipped deliverable, and a matrix that silently stopped testing it
+# would be worse than one that refuses.
+CLI_BIN=""
+CLI_ARCH="$(uname -m)"
+case "$CLI_ARCH" in
+  arm64|aarch64) CLI_ARCH=arm64 ;;
+  *)             CLI_ARCH=amd64 ;;
+esac
+if command -v go >/dev/null 2>&1; then
+  CLI_BIN="$LOGDIR/.volvra-cli-linux-$CLI_ARCH"
+  if GOOS=linux GOARCH="$CLI_ARCH" go build -C "$ROOT/cli" \
+       -ldflags "-X main.version=$(git -C "$ROOT" describe --tags --always 2>/dev/null || echo dev)" \
+       -o "$CLI_BIN" . 2>"$LOGDIR/cli-build.log"; then
+    echo "built the CLI for linux/$CLI_ARCH"
+  else
+    echo "✗ could not build the CLI -- see $LOGDIR/cli-build.log"
+    sed 's/^/    /' "$LOGDIR/cli-build.log" | head -10
+    exit 1
+  fi
+else
+  echo "! no Go toolchain: the CLI suite will be SKIPPED, not passed"
+fi
+
 for v in "${VERSIONS[@]}"; do
   img="$(image_for "$v")"
   cname="volvra-test-pg$v-$$"
@@ -77,11 +106,7 @@ for v in "${VERSIONS[@]}"; do
   fi
 
   ready=0
-  for _ in $(seq 1 60); do
-    docker exec "$cname" pg_isready -U postgres -d postgres >/dev/null 2>&1 \
-      && { ready=1; break; }
-    sleep 1
-  done
+  volvra_wait_ready "$cname" postgres && ready=1
   if [[ $ready -ne 1 ]]; then
     echo "  ✗ server never became ready"
     docker logs "$cname" >>"$LOGDIR/pg$v-start.log" 2>&1
@@ -188,10 +213,17 @@ for v in "${VERSIONS[@]}"; do
     # The CLI suite gets a clean database: phase 4 deliberately plants
     # tampering, and `volvra verify` is supposed to report it.
     echo "### cli ###"
-    su_psql -c "CREATE DATABASE volvra_cli"
-    docker exec "$cname" psql -v ON_ERROR_STOP=1 -U postgres -d volvra_cli \
-      -f /volvra/sql/volvra.sql
-    docker exec -e PGDATABASE=volvra_cli "$cname" bash /volvra/test/cli.sh
+    if [[ -n "$CLI_BIN" ]]; then
+      su_psql -c "CREATE DATABASE volvra_cli"
+      docker exec "$cname" psql -v ON_ERROR_STOP=1 -U postgres -d volvra_cli \
+        -f /volvra/sql/volvra.sql
+      docker cp "$CLI_BIN" "$cname:/volvra-cli"
+      docker exec "$cname" chmod 0755 /volvra-cli
+      docker exec -e PGDATABASE=volvra_cli -e VOLVRA_BIN=/volvra-cli \
+        "$cname" bash /volvra/test/cli.sh
+    else
+      echo "SKIPPED: no Go toolchain to build the CLI with"
+    fi
 
     # Scenarios assert that verify() is clean, and phase 4 deliberately plants
     # tampering, so this needs a database of its own.  Run as the unprivileged
@@ -216,16 +248,25 @@ for v in "${VERSIONS[@]}"; do
   } >>"$extra_log" 2>&1
   erc=$?
 
+  # The CLI marker is only required when there was a CLI to test.  Printing the
+  # marker from the skip path instead would turn "not tested" into "passed",
+  # which is the failure mode this whole suite exists to avoid.
+  extra_markers=('VOLVRA NON-SUPERUSER INSTALL PASSED'
+                 'ALL VOLVRA SCENARIO CHECKS PASSED'
+                 'VOLVRA UPGRADE FROM V1 PASSED')
+  [[ -n "$CLI_BIN" ]] && extra_markers+=('ALL VOLVRA CLI CHECKS PASSED')
+
   emissing=()
-  for m in 'VOLVRA NON-SUPERUSER INSTALL PASSED' \
-           'ALL VOLVRA CLI CHECKS PASSED' \
-           'ALL VOLVRA SCENARIO CHECKS PASSED' \
-           'VOLVRA UPGRADE FROM V1 PASSED'; do
+  for m in "${extra_markers[@]}"; do
     grep -q "$m" "$extra_log" || emissing+=("$m")
   done
 
   if [[ $erc -eq 0 && ${#emissing[@]} -eq 0 ]]; then
-    echo "  ✓ extra: non-superuser install + cli + scenarios + upgrade"
+    if [[ -n "$CLI_BIN" ]]; then
+      echo "  ✓ extra: non-superuser install + cli + scenarios + upgrade"
+    else
+      echo "  ✓ extra: non-superuser install + scenarios + upgrade (cli SKIPPED)"
+    fi
   else
     echo "  ✗ extra: FAILED (rc=$erc)${emissing[*]+, missing: ${emissing[*]}}"
     grep -nE "^psql.*ERROR|^ERROR|FAIL " "$extra_log" | head -3 | sed 's/^/        /'
