@@ -18,6 +18,10 @@ the database, and capture moves off the write path.
 Deploy the companion when the history must outlive the database. Most
 deployments use the trigger tier alone.
 
+The archive is not a physical backup, and the companion is not a
+substitute for one. The [Volvra and Backups](backups.md) document sets
+out what each recovers.
+
 ## Requirements
 
 The companion has two requirements that the trigger tier does not. The

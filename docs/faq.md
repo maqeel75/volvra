@@ -43,13 +43,18 @@ the whole job.
 
 ## Does Volvra replace backups?
 
-No. The trigger tier records row changes in a table inside the same
-database, so the trigger tier shares the fate of the database.
+No. A backup restores your data; Volvra restores your ability to
+reverse a specific change. You need both.
 
-The companion writes change data to storage you own, so the history
+The trigger tier records row changes in a table inside the same
+database, so the trigger tier shares the fate of the database. The
+companion writes change data to storage you own, so the history
 survives the database. Even so, the archive holds row changes rather
 than a database, so schema and everything outside covered tables are
 not in the archive.
+
+The [Volvra and Backups](backups.md) document works through what each
+one recovers, with an example.
 
 ## What does coverage cost?
 

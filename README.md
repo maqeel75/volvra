@@ -12,6 +12,7 @@ Row-level undo and history for PostgreSQL.
 - [Examples](docs/examples.md)
 - [Installing Volvra](docs/installation.md)
 - [Verifying a Managed Provider](docs/managed_providers.md)
+- [Volvra and Backups](docs/backups.md)
     - [Configuring Volvra](docs/configuration.md)
     - [Upgrading Volvra](docs/upgrading.md)
 - [Covering Tables](docs/covering_tables.md)
