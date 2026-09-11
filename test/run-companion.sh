@@ -13,10 +13,26 @@ VERSIONS=("$@")
 [[ ${#VERSIONS[@]} -eq 0 ]] && VERSIONS=(14 15 16 17 18 19)
 
 PASS=(); FAIL=()
-PORT=55440
 LOGDIR="$ROOT/test/logs"; mkdir -p "$LOGDIR"
 
+# Find a port nothing is listening on, rather than trusting a fixed one.
+# A collision here surfaces as "server never became ready", which reads as a
+# product failure and is not one: it cost a PG19 run when another suite's
+# container still held the port.
+free_port() {
+  local p
+  for p in $(seq 55440 55520); do
+    if ! (exec 3<>/dev/tcp/127.0.0.1/$p) 2>/dev/null; then
+      echo "$p"; return 0
+    fi
+    exec 3<&- 2>/dev/null
+  done
+  echo "no free port in 55440-55520" >&2
+  return 1
+}
+
 for v in "${VERSIONS[@]}"; do
+  PORT="$(free_port)" || exit 1
   log="$LOGDIR/companion-pg$v.log"
   echo "──────────────────────────────────────────────────────────────"
   echo "▶ companion on PostgreSQL $v (host port $PORT)"

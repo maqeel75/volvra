@@ -6,6 +6,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Support for multi-master clusters, through the `capture_replicated`
+  setting and `volvra.set_capture_replicated`. PostgreSQL does not fire
+  an ordinary row trigger for rows applied by replication, so a node
+  would otherwise record only what was written to it. The setting
+  defaults to off, which leaves single-node behaviour unchanged, and
+  `volvra.preflight` warns when a database receives replicated changes
+  without capturing them. Verified on a two-node Spock cluster, where
+  a node reverted a change made on its peer.
+- A critical preflight finding when a Volvra table is in a publication
+  or replication set, which would make two nodes write the same
+  history identifiers.
+
 ### Added
 
 - Row-level undo for INSERT, UPDATE, and DELETE, selectable by table,

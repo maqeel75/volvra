@@ -272,27 +272,58 @@ slots`. An administrator grants it:
 ALTER ROLE admin REPLICATION;
 ```
 
-### Distributed clusters
-
-One question is open and matters only on a multi-node pgEdge cluster:
-whether Volvra should capture changes that arrive through replication,
-or only changes written locally.
+### Multi-node clusters
 
 PostgreSQL does not fire an ordinary `AFTER` trigger for rows applied
-by logical replication; a trigger has to be created `ENABLE ALWAYS` for
-that. Volvra creates ordinary triggers, so on a multi-master cluster
-each node would record the changes written to that node and not those
-replicated from its peers. History would be per node, and an undo on
-one node would neither see nor revert a change made on another.
+by replication, so on a multi-master cluster each node would record
+only what was written to it. The `capture_replicated` setting decides
+whether Volvra records its peers' changes as well.
 
-Whether that is right depends on what an undo should mean across
-nodes, and the answer is not obvious: capturing replicated changes as
-well would record every change on every node, which is complete but
-duplicated, and undoing on one node would then replicate the undo to
-the others. Establish the intended behaviour before covering tables on
-a distributed cluster. The verification in this document runs on one
-connection and cannot detect the difference, so a pass says nothing
-either way.
+Turn it on where history must be complete on every node:
+
+```sql
+SELECT * FROM volvra.set_capture_replicated('on');
+```
+
+The function switches every covered table, and `volvra.enable` uses the
+setting for tables covered afterwards. The following table describes
+what each value does:
+
+| Value | Trigger | What a node records |
+|---|---|---|
+| off (default) | Ordinary | Only changes written to that node |
+| on | ENABLE ALWAYS | Its own changes and those replicated from peers |
+
+The default is `off` so that single-node behaviour is unchanged. That
+matters beyond replication: an `ENABLE ALWAYS` trigger also fires when
+`session_replication_role` is `replica`, which is how bulk loaders and
+migration tools suppress triggers. Turning it on unconditionally would
+change behaviour for installations that rely on that.
+
+`volvra.preflight` reports the mismatch rather than leaving it to be
+discovered during an incident. A database that receives replicated
+changes while `capture_replicated` is off produces a warning naming
+the situation.
+
+Two consequences are worth understanding before turning it on. Each
+change is stored once per node, so history costs N times as much
+across an N-node cluster. An undo applied on one node replicates to
+the others and is captured there in turn, which is correct but means
+an undo appears in every node's history.
+
+Changing the setting needs ownership of the covered tables, because it
+alters their triggers. A role that lacks ownership gets a warning
+naming the table rather than a failed operation; run
+`volvra.set_capture_replicated` as the table owner to finish the job.
+
+### The history itself must never replicate
+
+`volvra.preflight` reports a critical finding if any Volvra table is in
+a publication or replication set. Two nodes would write the same
+`change_log` identifiers, and every captured change would be applied
+twice. This is easy to do by accident with a replication set that adds
+every table in the database, so exclude the `volvra` schema
+explicitly.
 
 ## What to record
 

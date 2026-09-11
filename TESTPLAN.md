@@ -11,12 +11,12 @@ The following table describes the current baseline:
 
 | Measure | Value |
 |---|---|
-| SQL assertions | 379 across 10 suites, in two privilege contexts |
-| Privilege pairs | 301, asserted in both directions |
-| Shell checks | 116 across CLI, concurrency, recovery, and scale |
+| SQL assertions | 472 across 12 suites, in two privilege contexts |
+| Privilege pairs | 322, asserted in both directions |
+| Shell checks | 148 across seven shell suites |
 | PostgreSQL versions | 14, 15, 16, 17, 18, 19beta1 |
 | Linux distributions | 11, via `test/portability.sh` |
-| Public functions | 44 |
+| Public functions | 47 |
 
 Every priority is complete. The following table describes what each
 one delivered:
@@ -28,7 +28,7 @@ one delivered:
 | 3. Concurrency | Done | `test/concurrency.sh`, 21 checks |
 | 4. Crash and recovery | Done | `test/recovery.sh`, 22 checks |
 | 5. Upgrade paths | Done | Snapshot tooling, release-to-release test |
-| 6. Scenario coverage | Done | `test/scenarios.sql`, 72 assertions |
+| 6. Scenario coverage | Done | `test/scenarios.sql`, 81 assertions |
 | 7. Scale | Done | `test/scale.sh`, 23 checks |
 
 ## The central gap
@@ -299,6 +299,35 @@ reasons rather than assertions:
   than through a pooler: the suite proves `SET LOCAL` does not leak
   across transactions and a plain `SET` does, which is the whole of
   the documented failure mode.
+
+## Beyond the plan: replay, backups, and multi-node
+
+Three suites exist that no priority asked for, because the work that
+produced them turned up questions the plan had not anticipated.
+
+`test/replay.sql` and `test/replay-edge.sql` cover forward replay, the
+mirror of undo, across 23 sections. The engine shares one plan builder,
+one guard, one cap and one transaction between the two directions, so
+a safety property cannot hold for an undo and not a replay. The
+assertions were checked by mutating the engine three ways -- removing
+the guard, reversing the order, applying the wrong image -- and each
+mutation is caught by a different section.
+
+`test/backup-replay.sh` takes a real `pg_dump`, drops the database,
+restores it, loads the archived history and replays forward, then
+asserts the recovered database is byte-identical to the one that was
+lost by hashing every row of every covered table. It runs on all six
+versions. Writing it found two defects that affected undo as well as
+replay: guards compared generated columns, which logical replication
+does not send, and on PostgreSQL 18 `companion_setup` left a covered
+table with a generated column impossible to update at all.
+
+`test/multinode.sh` builds a two-node Spock cluster from the
+`pgedge/pgedge` image. PostgreSQL does not fire an ordinary row
+trigger for rows applied by replication, so a node would record only
+its own changes; the suite measures both settings of
+`capture_replicated` and ends by having a node revert a change made on
+its peer. It is the only suite that needs more than one server.
 
 ## Priority 7: scale
 

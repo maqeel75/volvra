@@ -125,6 +125,7 @@ The following table describes the settings that the durable tier uses:
 | Setting | Default | Description |
 |---|---|---|
 | companion_slot | volvra_companion | Name of the logical replication slot the companion reads. |
+| capture_replicated | off | Whether capture records changes arriving through replication. Set to on for a multi-master cluster; see Managed Providers. |
 | companion_publication | volvra_pub | Publication the companion subscribes to. |
 | companion_lag_warn_bytes | 536870912 | Retained WAL at which volvra.companion_status reports a warning. |
 | companion_lag_max_bytes | 5368709120 | Retained WAL at which the slot becomes a threat to the database. |

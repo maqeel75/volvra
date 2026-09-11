@@ -438,7 +438,21 @@ INSERT INTO volvra.settings(key, value) VALUES
   -- Retained WAL at which the slot becomes a threat to the database rather
   -- than a safety net.  See volvra.companion_status().
   ('companion_lag_warn_bytes', '536870912'),      -- 512 MB
-  ('companion_lag_max_bytes',  '5368709120')      -- 5 GB
+  ('companion_lag_max_bytes',  '5368709120'),     -- 5 GB
+  -- Whether capture also records changes that arrive through replication.
+  --
+  --   off  (default)  ordinary triggers.  A node records what was written to
+  --                   it and not what its peers sent.  On a single node there
+  --                   is nothing else to record, so this is complete.
+  --   on              ENABLE ALWAYS triggers.  Every node records every
+  --                   change, its own and its peers'.  Needed for a multi-
+  --                   master cluster to have usable history on each node.
+  --
+  -- Off by default because ENABLE ALWAYS also makes a trigger fire when
+  -- session_replication_role is 'replica', which is how bulk loaders and
+  -- migration tools suppress triggers.  Turning it on unconditionally would
+  -- change behaviour for single-node users who rely on that.
+  ('capture_replicated',       'off')
   ON CONFLICT (key) DO NOTHING;
 
 -- ---------------------------------------------------------------------
@@ -1171,6 +1185,45 @@ $$;
 --
 -- A partition attached after this runs is again uncovered for TRUNCATE, so
 -- maintain() calls this to reconcile, and status() reports the shortfall.
+-- Turn capture of replicated changes on or off, across every covered table.
+--
+--   SELECT * FROM volvra.set_capture_replicated('on');
+--
+-- On a multi-master cluster, 'on' is what gives each node history of its
+-- peers' changes rather than only its own. The cost is that every change is
+-- stored once per node, and an undo applied on one node replicates to the
+-- others and is captured there too.
+--
+-- 'off' restores the default firing mode, which is also what a bulk loader
+-- setting session_replication_role = 'replica' expects: an ALWAYS trigger
+-- fires under that setting and an ordinary one does not.
+CREATE OR REPLACE FUNCTION volvra.set_capture_replicated(p_value text)
+RETURNS TABLE (table_name text, captures_replicated boolean)
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE r record;
+BEGIN
+  PERFORM volvra._require('volvra_admin');
+
+  IF p_value NOT IN ('on', 'off') THEN
+    RAISE EXCEPTION 'volvra.set_capture_replicated: expected on or off, got %',
+      p_value USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  PERFORM volvra.set_setting('capture_replicated', p_value);
+
+  FOR r IN SELECT e.table_name AS t FROM volvra.enabled_tables e
+            WHERE volvra._resolve(e.table_name) IS NOT NULL
+            ORDER BY e.table_name
+  LOOP
+    table_name := r.t;
+    captures_replicated := volvra._apply_trigger_mode(r.t);
+    RETURN NEXT;
+  END LOOP;
+END
+$$;
+
 CREATE OR REPLACE FUNCTION volvra.cover_partitions(target regclass DEFAULT NULL)
 RETURNS TABLE (partition_name text, action text)
 LANGUAGE plpgsql
@@ -1213,6 +1266,88 @@ BEGIN
     action := 'truncate trigger added';
     RETURN NEXT;
   END LOOP;
+END
+$$;
+
+-- Is this database receiving changes from somewhere else?
+--
+-- True when a native logical replication subscription exists, or when Spock
+-- has a subscription. Either means changes arrive that an ordinary trigger
+-- will not see, which is the whole reason capture_replicated exists.
+CREATE OR REPLACE FUNCTION volvra._is_subscriber() RETURNS boolean
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE v_n bigint := 0;
+BEGIN
+  SELECT count(*) INTO v_n FROM pg_subscription;
+  IF v_n > 0 THEN RETURN true; END IF;
+
+  -- Spock keeps its own subscription catalogue, and querying it has to be
+  -- guarded: the extension is absent on most installs.
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'spock') THEN
+    BEGIN
+      EXECUTE 'SELECT count(*) FROM spock.subscription' INTO v_n;
+      IF v_n > 0 THEN RETURN true; END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RETURN false;
+    END;
+  END IF;
+  RETURN false;
+END
+$$;
+
+-- The trigger firing mode capture should use, from the setting.
+CREATE OR REPLACE FUNCTION volvra._trigger_mode() RETURNS text
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT CASE WHEN coalesce(volvra.get_setting('capture_replicated'), 'off') = 'on'
+              THEN 'ALWAYS' ELSE 'ORIGIN' END
+$$;
+
+-- Put one covered table's triggers into the configured firing mode.
+--
+-- Separate from enable() because the setting can change after a table is
+-- covered, and because maintain() reconciles tables that were covered under a
+-- previous setting. ALTER TABLE ... ENABLE ALWAYS/REPLICA TRIGGER is the only
+-- way to change a trigger's firing mode; it cannot be set at CREATE time.
+CREATE OR REPLACE FUNCTION volvra._apply_trigger_mode(p_table text)
+RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_mode text := volvra._trigger_mode();
+  v_trg  text;
+BEGIN
+  FOREACH v_trg IN ARRAY ARRAY['volvra_capture', 'volvra_capture_truncate'] LOOP
+    BEGIN
+      EXECUTE format('ALTER TABLE %s ENABLE %s TRIGGER %I',
+                     p_table,
+                     CASE WHEN v_mode = 'ALWAYS' THEN 'ALWAYS' ELSE 'REPLICA' END,
+                     v_trg);
+      -- ENABLE REPLICA is not the same as the default. Restore the default
+      -- firing mode explicitly when the setting is off.
+      IF v_mode <> 'ALWAYS' THEN
+        EXECUTE format('ALTER TABLE %s ENABLE TRIGGER %I', p_table, v_trg);
+      END IF;
+    EXCEPTION
+      WHEN undefined_object THEN
+        NULL;    -- a partitioned parent has no truncate trigger of its own
+      WHEN insufficient_privilege THEN
+        -- ALTER TABLE needs table ownership, which a volvra_admin need not
+        -- have. Best-effort rather than fatal, for the same reason
+        -- volvra._publish() is: refusing the whole operation over a table
+        -- this caller cannot alter would be the wrong trade. The warning
+        -- names the table, and preflight reports the resulting mismatch.
+        RAISE WARNING 'volvra: cannot set the firing mode of % on %, which '
+                      'this role does not own. Run volvra.set_capture_'
+                      'replicated as the table owner.', v_trg, p_table;
+        RETURN false;
+    END;
+  END LOOP;
+  RETURN v_mode = 'ALWAYS';
 END
 $$;
 
@@ -1271,6 +1406,11 @@ BEGIN
     'CREATE OR REPLACE TRIGGER volvra_capture_truncate '
     'BEFORE TRUNCATE ON %s '
     'FOR EACH STATEMENT EXECUTE FUNCTION volvra.capture_truncate()', v_tbl);
+
+  -- ORIGIN or ALWAYS, from capture_replicated. An ALWAYS trigger also fires
+  -- for rows applied by replication, which is what a node in a multi-master
+  -- cluster needs in order to hold history of its peers' changes.
+  PERFORM volvra._apply_trigger_mode(v_tbl);
 
   -- Keep the durable tier in step.  companion_setup() builds the publication
   -- from the tables covered when it runs, so a table covered afterwards would
@@ -3556,6 +3696,7 @@ BEGIN
     affected := v_n; RETURN NEXT;
   END IF;
 
+
   IF p_purge THEN
     SELECT coalesce(sum(x.rows_removed), 0) INTO v_n FROM volvra.purge() x;
     step := 'retention'; detail := 'per-table policy applied';
@@ -3926,6 +4067,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
+  v_repl  boolean := false;
   v_owner    text;
   v_n        bigint;
 BEGIN
@@ -4035,7 +4177,51 @@ BEGIN
   -- Retention has to be run, not merely configured.
   IF NOT EXISTS (SELECT 1 FROM volvra.retention_log) THEN
     severity := 'warning';
-    finding  := 'retention has never run';
+    -- A subscriber with ordinary triggers records only what was written to it.
+  -- That is the correct default for a single node and silently wrong for a
+  -- cluster, so say so where it can be seen rather than leaving it to be
+  -- discovered during an incident.
+  IF volvra._is_subscriber()
+     AND coalesce(volvra.get_setting('capture_replicated'), 'off') <> 'on' THEN
+    severity := 'warning';
+    finding  := 'this database receives replicated changes but does not capture them';
+    detail   := 'Ordinary triggers do not fire for rows applied by '
+                'replication, so history here covers only changes written to '
+                'this node. Run volvra.set_capture_replicated(''on'') to '
+                'capture peers'' changes too, at the cost of storing every '
+                'change once per node.';
+    RETURN NEXT;
+  END IF;
+
+  -- Replicating volvra's own tables would be a disaster: two nodes writing
+  -- the same change_log id, and every captured change applied twice. It is
+  -- easy to do by accident with a repset that adds all tables.
+  -- Checked through two catalogues because the two replication systems keep
+  -- separate ones: pg_publication_tables for native logical replication, and
+  -- spock.tables for Spock, which is queried dynamically because the
+  -- extension is absent on most installs.
+  v_repl := EXISTS (SELECT 1 FROM pg_publication_tables WHERE schemaname = 'volvra');
+  IF NOT v_repl AND EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'spock') THEN
+    BEGIN
+      EXECUTE 'SELECT count(*) > 0 FROM spock.tables '
+              'WHERE nspname = ''volvra'' AND set_name IS NOT NULL'
+        INTO v_repl;
+    EXCEPTION WHEN OTHERS THEN
+      v_repl := false;
+    END;
+  END IF;
+
+  IF v_repl THEN
+    severity := 'critical';
+    finding  := 'volvra tables are in a publication';
+    detail   := 'The history must not replicate. Two nodes would write the '
+                'same change_log ids, and every captured change would be '
+                'applied twice. Remove the volvra schema from the '
+                'publication or replication set.';
+    RETURN NEXT;
+  END IF;
+
+  finding  := 'retention has never run';
     detail   := format('History grows without bound until volvra.maintain() or '
                        'volvra.purge() runs. Default horizon: %s.',
                        coalesce(volvra.get_setting('retention_default'), 'unset'));
@@ -4271,6 +4457,7 @@ BEGIN
           '  volvra.capture_truncate(), '
           '  volvra._publish(text), '
           '  volvra.cover_partitions(regclass), '
+          '  volvra.set_capture_replicated(text), '
           '  volvra._stamp_audit(), '
           '  volvra._guard_append_only() '
           'FROM volvra_viewer';
@@ -4303,6 +4490,7 @@ BEGIN
           'volvra.enable_all(text), volvra.disable_all(text), '
           'volvra._publish(text), '
           'volvra.cover_partitions(regclass), '
+          'volvra.set_capture_replicated(text), '
           'volvra.make_fks_deferrable(text) TO volvra_admin';
   -- An administrator has to be able to write the tables its own documented
   -- operations write.  Without these, set_retention, set_capture_mode,

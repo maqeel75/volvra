@@ -368,6 +368,26 @@ The function takes `older_than interval` and returns `action`,
 `object`, and `rows_removed`. The action is `dropped partition` or
 `deleted rows`.
 
+### volvra.set_capture_replicated
+
+Turns capture of replicated changes on or off across every covered
+table. Requires membership in `volvra_admin`, and ownership of the
+covered tables, because it alters their triggers.
+
+The function takes `p_value text`, which must be `on` or `off`, and
+returns `table_name` and `captures_replicated` for each covered table.
+
+PostgreSQL does not fire an ordinary `AFTER` trigger for rows applied
+by replication, so a node in a multi-master cluster records only what
+was written to it. Setting this to `on` makes the capture triggers
+`ENABLE ALWAYS`, so each node records its peers' changes as well.
+
+The default is `off`, because an `ENABLE ALWAYS` trigger also fires
+when `session_replication_role` is `replica`, which bulk loaders use
+to suppress triggers. A table whose owner differs from the caller
+produces a warning naming that table rather than failing the whole
+call.
+
 ### volvra.cover_partitions
 
 Attaches the statement-level TRUNCATE trigger to every partition of a

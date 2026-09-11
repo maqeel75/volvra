@@ -935,6 +935,85 @@ END $$;
 
 SELECT volvra.set_setting('capture_updates', 'changed');
 
+-- ---------------------------------------------------------------------
+\echo '=== S6.12 capture_replicated switches the trigger firing mode ==='
+
+-- The multi-node behaviour itself needs two servers and lives in
+-- test/multinode.sh. What belongs here is the part that is observable on one:
+-- the setting must change the firing mode of every covered table, apply to
+-- tables covered afterwards, and go back cleanly.
+--
+-- 'O' is the default firing mode and 'A' is ENABLE ALWAYS, as pg_trigger
+-- records them.
+CREATE TABLE sc.repl_a (id int PRIMARY KEY, v int);
+SELECT volvra.enable('sc.repl_a');
+
+DO $$ BEGIN
+  ASSERT coalesce(volvra.get_setting('capture_replicated'), 'off') = 'off',
+         'off is the default, so single-node behaviour is unchanged';
+  ASSERT (SELECT count(*) FROM pg_trigger
+           WHERE tgrelid = 'sc.repl_a'::regclass
+             AND tgname LIKE 'volvra_%' AND tgenabled = 'O') = 2,
+         'a covered table starts with ordinary triggers';
+END $$;
+
+SELECT count(*) FROM volvra.set_capture_replicated('on');
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM pg_trigger
+           WHERE tgrelid = 'sc.repl_a'::regclass
+             AND tgname LIKE 'volvra_%' AND tgenabled = 'A') = 2,
+         'turning it on makes both triggers ENABLE ALWAYS';
+END $$;
+
+\echo '--- and a table covered afterwards inherits the setting ---'
+CREATE TABLE sc.repl_b (id int PRIMARY KEY, v int);
+SELECT volvra.enable('sc.repl_b');
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM pg_trigger
+           WHERE tgrelid = 'sc.repl_b'::regclass
+             AND tgname LIKE 'volvra_%' AND tgenabled = 'A') = 2,
+         'enable() uses the setting rather than the default';
+END $$;
+
+\echo '--- capture still works in either mode ---'
+INSERT INTO sc.repl_b VALUES (1, 1);
+UPDATE sc.repl_b SET v = 2;
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM volvra.change_log
+           WHERE table_name = 'sc.repl_b') = 2,
+         'an ALWAYS trigger captures ordinary local writes too';
+END $$;
+
+\echo '--- and turning it off restores the default, not ENABLE REPLICA ---'
+SELECT count(*) FROM volvra.set_capture_replicated('off');
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM pg_trigger
+           WHERE tgrelid = 'sc.repl_a'::regclass
+             AND tgname LIKE 'volvra_%' AND tgenabled = 'O') = 2,
+         'sc.repl_a is back to the default firing mode';
+  ASSERT (SELECT count(*) FROM pg_trigger
+           WHERE tgrelid = 'sc.repl_b'::regclass
+             AND tgname LIKE 'volvra_%' AND tgenabled = 'O') = 2,
+         'and so is sc.repl_b -- ENABLE REPLICA would be a different mode '
+         'that stops the trigger firing for ordinary writes';
+END $$;
+UPDATE sc.repl_b SET v = 3;
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM volvra.change_log
+           WHERE table_name = 'sc.repl_b') = 3,
+         'capture still works after switching back';
+END $$;
+
+DO $$
+DECLARE v_refused boolean := false;
+BEGIN
+  BEGIN
+    PERFORM count(*) FROM volvra.set_capture_replicated('maybe');
+  EXCEPTION WHEN OTHERS THEN v_refused := true;
+  END;
+  ASSERT v_refused, 'only on and off are accepted';
+END $$;
+
 \echo ''
 \echo '*** ALL VOLVRA SCENARIO CHECKS PASSED ***'
 

@@ -110,6 +110,24 @@ jobs:
           path: test/logs/
           if-no-files-found: warn
 
+  multinode:
+    name: Multi-node Spock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Two pgEdge nodes, not the postgres image: this is the only suite that
+      # needs Spock, and the only place capture of replicated changes can be
+      # observed at all.
+      - name: Capture across a two-node cluster
+        run: ./test/multinode.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multinode
+          path: test/logs/
+          if-no-files-found: warn
+
   companion:
     name: Companion (PG ${{ matrix.pg }})
     runs-on: ubuntu-latest

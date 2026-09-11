@@ -124,6 +124,7 @@ INSERT INTO pm_fn (fn, call_sql, tier) VALUES
   ('companion_setup',      $$SELECT count(*) FROM volvra.companion_setup('pm_empty')$$,  'admin'),
   ('_publish',             $$SELECT volvra._publish('pm.t')$$,                           'admin'),
   ('cover_partitions',     $$SELECT count(*) FROM volvra.cover_partitions()$$,           'admin'),
+  ('set_capture_replicated',$$SELECT count(*) FROM volvra.set_capture_replicated('off')$$, 'admin'),
   ('disable',              $$SELECT volvra.disable('pm.t')$$,                            'admin_owner'),
   -- marks: taking one is operator bookkeeping, reading them is a view
   ('marks',                $$SELECT count(*) FROM volvra.marks()$$,                      'viewer'),

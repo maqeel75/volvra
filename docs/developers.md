@@ -76,7 +76,8 @@ Each version runs the following phases in order:
 10. The command line suite exercises every command and every exit
     code.
 11. The scenario suite covers table shapes, identifiers, schema
-    change, foreign keys, partitions, and erasure.
+    change, foreign keys, partitions, erasure, and the firing mode of
+    the capture triggers.
 12. The upgrade suite installs the previous release's schema, seeds
     history and a seal, then installs the current schema over it.
 
@@ -121,6 +122,21 @@ The script needs only `psql`, installs Volvra into a throwaway
 database, and drops the schema afterwards unless given `--keep`. See
 the [Managed Providers](managed_providers.md) document for the
 per-service steps.
+
+## Running the multi-node suite
+
+One suite needs more than a single server. `test/multinode.sh` builds a
+two-node Spock cluster from the `pgedge/pgedge` image and checks what a
+node records of its peers' changes:
+
+```bash
+./test/multinode.sh
+```
+
+It asserts both settings: with `capture_replicated` off a replicated
+change arrives in the table and is not captured, and with it on the
+same change is captured with both images, so a node can revert a
+change it never made. Set `VOLVRA_PGEDGE_IMAGE` to test another image.
 
 ## Running the scale suite
 
