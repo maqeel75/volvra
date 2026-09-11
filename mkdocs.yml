@@ -62,6 +62,7 @@ nav:
   - Examples: examples.md
   - Installing Volvra:
       - Installation: installation.md
+      - Managed Providers: managed_providers.md
       - Configuring Volvra: configuration.md
       - Upgrading Volvra: upgrading.md
   - Using Volvra:

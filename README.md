@@ -11,6 +11,7 @@ Row-level undo and history for PostgreSQL.
 - [Getting Started](docs/quick_start.md)
 - [Examples](docs/examples.md)
 - [Installing Volvra](docs/installation.md)
+- [Verifying a Managed Provider](docs/managed_providers.md)
     - [Configuring Volvra](docs/configuration.md)
     - [Upgrading Volvra](docs/upgrading.md)
 - [Covering Tables](docs/covering_tables.md)
@@ -39,9 +40,13 @@ discarding every other change made since.
 
 Volvra installs as plain SQL. Volvra requires no compiled extension,
 no PostgreSQL extensions at all, no superuser, and no access to the
-database server filesystem, so Volvra installs on managed providers
-such as Amazon RDS, Amazon Aurora, Google Cloud SQL, Supabase, and
-Neon.
+database server filesystem, which is what managed providers withhold.
+Volvra is verified on Supabase, where a full verification run passes
+on the free plan for both the trigger tier and the durable tier, and
+is designed for Amazon RDS, Amazon Aurora, Google Cloud SQL, and Neon
+on the same basis. See
+[Verifying a Managed Provider](docs/managed_providers.md) for what has
+been verified on which service.
 
 Volvra records changes from the moment you cover a table, and cannot
 recover a change made before that point. Setup is therefore the whole

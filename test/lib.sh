@@ -49,3 +49,31 @@ volvra_wait_ready() {
   } >&2
   return 1
 }
+
+# Refuse a `docker exec` that feeds psql a heredoc without -i.
+#
+#     volvra_lint_suites <file>...
+#
+# Without -i, docker exec attaches no stdin, psql is handed nothing, and it
+# exits 0 having done nothing at all -- no output, no error, nothing in the
+# log. Every assertion after such a block then measures state that was never
+# created, and the ones that "pass" are the dangerous half.
+#
+# This has now bitten this project three times: the bench fixtures, the scale
+# suite's back-dated history, and a throwaway role in the provider check. It
+# is not a bug anyone catches by remembering, so it is checked instead.
+volvra_lint_suites() {
+  local bad=0 f
+  for f in "$@"; do
+    [[ -f "$f" ]] || continue
+    # A heredoc opener on a docker exec line that has no -i flag.
+    if grep -nE 'docker exec ([^|]*[^i] )?[^|]*<<' "$f" \
+         | grep -v -- '-i' | grep -q .; then
+      echo "$f: docker exec feeds a heredoc without -i:" >&2
+      grep -nE 'docker exec ([^|]*[^i] )?[^|]*<<' "$f" | grep -v -- '-i' \
+        | sed 's/^/    /' >&2
+      bad=1
+    fi
+  done
+  return $bad
+}

@@ -11,9 +11,13 @@ Volvra reverts only the rows the mistake touched, and leaves unrelated
 work in place.
 
 Volvra installs as plain SQL. Volvra requires no compiled extension,
-no superuser, and no access to the database server filesystem, so
-Volvra installs on managed providers such as Amazon RDS, Amazon
-Aurora, Google Cloud SQL, Supabase, and Neon.
+no superuser, and no access to the database server filesystem, which
+is what managed providers withhold. Volvra is verified on Supabase,
+where a full verification run passes on the free plan for both the
+trigger tier and the durable tier, and is designed for Amazon RDS,
+Amazon Aurora, Google Cloud SQL, and Neon on the same basis. The
+[Managed Providers](managed_providers.md) document records what has
+been verified on which service, and how to verify the rest.
 
 Volvra includes the following features:
 

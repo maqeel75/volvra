@@ -107,6 +107,21 @@ GOOS=linux go build -C companion -o /tmp/volvra-companion .
 export VOLVRA_COMPANION_BIN=/tmp/volvra-companion
 ```
 
+## Verifying a managed provider
+
+Every other suite runs against a container. `test/provider.sh` runs
+against a real managed service, because a container cannot withhold the
+privileges the design depends on being able to live without:
+
+```bash
+./test/provider.sh --dsn "postgres://master@host:5432/probe"
+```
+
+The script needs only `psql`, installs Volvra into a throwaway
+database, and drops the schema afterwards unless given `--keep`. See
+the [Managed Providers](managed_providers.md) document for the
+per-service steps.
+
 ## Running the scale suite
 
 The scale suite pushes the limits Volvra advertises past their

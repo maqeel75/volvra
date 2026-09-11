@@ -123,9 +123,15 @@ every change.
 ## Does Volvra work on Amazon RDS, Supabase, and Neon?
 
 Volvra is designed for exactly those platforms, and requires nothing
-they withhold. Volvra has not yet been validated against a live
-instance of each provider, so treat the platform list as the design
-target rather than as a tested claim.
+they withhold.
+
+Supabase is verified: a full verification run passes there on
+PostgreSQL 17.6, on the free plan, covering both the trigger tier and
+the durable tier. The other platforms have not yet been validated
+against a live instance, so treat those as the design target rather
+than as a tested claim. The
+[Managed Providers](managed_providers.md) document records what has
+been verified and how to verify the rest.
 
 The durable tier additionally needs `wal_level` set to `logical`,
 which is a parameter change on a managed provider.

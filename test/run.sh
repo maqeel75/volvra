@@ -59,6 +59,13 @@ MARKERS=(
   'ALL VOLVRA PRIVILEGE MATRIX CHECKS PASSED'
 )
 
+# A suite that silently does nothing is worse than one that fails, so this is
+# checked before any container starts.
+if ! volvra_lint_suites "$ROOT"/test/*.sh; then
+  echo "✗ refusing to run: fix the above first" >&2
+  exit 2
+fi
+
 PASS=(); FAIL=()
 LOGDIR="$ROOT/test/logs"; mkdir -p "$LOGDIR"
 
