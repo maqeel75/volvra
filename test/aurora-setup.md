@@ -43,7 +43,11 @@ creating resources in, and a password with no `/`, `"`, `@`, or space:
 export AWS_REGION=eu-west-1
 export CL=volvra-probe                       # cluster identifier
 export MASTER=volvra_master
-export PGPASSWORD='ChangeMe-8chars-min'
+
+# Prompted, not written down: a password in a command line is kept in
+# the shell history and is visible to anyone who can list processes.
+printf 'New master password: '; stty -echo; read -r PGPASSWORD; stty echo; echo
+export PGPASSWORD
 ```
 
 ## 1. Choose an engine version
@@ -298,7 +302,8 @@ later, because `rds.logical_replication` is static.
     ```bash
     export PGHOST=volvra-probe.cluster-xxxx.eu-west-1.rds.amazonaws.com
     export MASTER=volvra_master
-    export PGPASSWORD='the password you set'
+    printf 'Master password: '; stty -echo; read -r PGPASSWORD; stty echo; echo
+    export PGPASSWORD
 
     psql "postgres://${MASTER}@${PGHOST}:5432/volvra_probe?sslmode=require" \
       -c "SELECT version()" \

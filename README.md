@@ -41,10 +41,9 @@ discarding every other change made since.
 Volvra installs as plain SQL. Volvra requires no compiled extension,
 no PostgreSQL extensions at all, no superuser, and no access to the
 database server filesystem, which is what managed providers withhold.
-Volvra is verified on Supabase, where a full verification run passes
-on the free plan for both the trigger tier and the durable tier, and
-is designed for Amazon RDS, Amazon Aurora, Google Cloud SQL, and Neon
-on the same basis. See
+Volvra is verified on Supabase and on Neon, where verification runs
+pass on the free plan, and is designed for Amazon RDS, Amazon Aurora,
+and Google Cloud SQL on the same basis. See
 [Verifying a Managed Provider](docs/managed_providers.md) for what has
 been verified on which service.
 

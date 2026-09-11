@@ -19,9 +19,17 @@ service withholds the privileges a container gives away.
 
 The `test/provider.sh` script runs the whole verification against a
 connection string. The script needs `psql` and nothing else, and runs
-from a workstation:
+from a workstation.
+
+Keep the password out of the connection string. A password written
+into a command line is recorded in the shell history and is visible to
+anyone who can list processes on that machine. Set `PGPASSWORD`
+instead, which `psql` reads, and which also avoids having to
+percent-encode a password containing `@`, `/`, `:`, or `#`:
 
 ```bash
+printf 'Database password: '; stty -echo; read -r PGPASSWORD; stty echo; echo
+export PGPASSWORD
 ./test/provider.sh --dsn "postgres://master@cluster.rds.amazonaws.com:5432/probe"
 ```
 
@@ -145,7 +153,9 @@ Verify Supabase with the following steps.
     `volvra` schema otherwise:
 
     ```bash
-    ./test/provider.sh --dsn "postgres://postgres:PASSWORD@HOST:5432/postgres"
+    printf 'Database password: '; stty -echo; read -r PGPASSWORD; stty echo; echo
+    export PGPASSWORD
+    ./test/provider.sh --dsn "postgres://postgres@HOST:5432/postgres" --keep
     ```
 
 4. Read section 9. Supabase runs `wal_level` as `logical` for its own
@@ -157,6 +167,77 @@ A free project pauses after a week of inactivity and takes around
 thirty seconds to wake. That does not affect a verification run in one
 sitting, but a paused project refuses connections, which looks like a
 network failure rather than a paused project.
+
+## Neon
+
+Neon, like Supabase, needs no infrastructure and has a free plan. The
+default role `neondb_owner` holds membership in `neon_superuser`,
+which carries CREATEDB, CREATEROLE, BYPASSRLS, and REPLICATION, but is
+not a PostgreSQL superuser. That is the configuration Volvra is
+designed for.
+
+Two things about Neon are worth knowing before starting.
+
+Enabling logical replication is **not reversible**. The setting
+changes `wal_level` from `replica` to `logical` for every database in
+the project, and restarts the computes, which drops active
+connections. Verify the trigger tier first without it; the durable
+tier is optional, and most deployments never use it.
+
+A connected replication subscriber keeps the compute awake. Neon's
+free plan suspends a compute after five minutes of inactivity, and a
+consumed slot prevents that, so a slot left behind after a
+verification bills compute time continuously. An unconsumed slot is
+also not free: it retains write-ahead log until it is dropped.
+
+Verify Neon with the following steps.
+
+1. Create a project on the free plan and copy the connection string
+    from the dashboard. Neon requires TLS, and the connection string
+    it gives you already includes `sslmode=require`.
+
+2. Run the verification against the database the project provides,
+    without enabling logical replication:
+
+    ```bash
+    printf 'Database password: '; stty -echo; read -r PGPASSWORD; stty echo; echo
+    export PGPASSWORD
+    ./test/provider.sh --keep \
+      --dsn "postgres://neondb_owner@HOST/neondb?sslmode=require"
+    ```
+
+    Use the **direct** endpoint, not the pooled one. Neon's dashboard
+    offers a pooler host by default, and its pooler runs in
+    transaction mode, which breaks the session setting Volvra reads
+    the actor from and cannot create a replication slot. The direct
+    host is the same name with `-pooler` removed.
+
+    Section 9 reports that `wal_level` is `replica` and skips the
+    durable tier. That is the expected result, and not a failure.
+
+3. Stop here unless you want the durable tier verified. If you do,
+    enable logical replication in the Neon console, accept that the
+    change cannot be undone for that project, and re-run the same
+    command. Section 9 should then create and drop a `pgoutput` slot.
+
+4. Confirm no slot survived the run, because one left behind keeps the
+    compute awake and retains WAL:
+
+    ```sql
+    SELECT slot_name, active FROM pg_replication_slots;
+    ```
+
+Roles created from SQL on Neon, which is how `test/provider.sh`
+creates the three Volvra roles, do not inherit `neon_superuser`. They
+are ordinary roles, which is what Volvra wants them to be.
+
+One difference from other providers is worth recording rather than
+hiding: `neondb_owner` holds BYPASSRLS, so the row-level security
+policy on the history does not constrain that role. The verification
+still passes, because it asserts that the policy exists rather than
+that the owner is subject to it, and a table owner bypasses row-level
+security on most providers regardless. It means the history's read
+restriction on Neon protects other roles, not `neondb_owner`.
 
 ## What to record
 
@@ -171,15 +252,26 @@ unverified until someone runs the script and records the result:
 | Service | Engine version | Trigger tier | Durable tier | Verified |
 |---|---|---|---|---|
 | Supabase | PostgreSQL 17.6 | Passed | Passed | 2026-09-11 |
+| Neon | PostgreSQL 18.6 | Passed | Not yet run | 2026-09-11 |
 | Amazon Aurora PostgreSQL | - | Not yet run | Not yet run | - |
 | Amazon RDS for PostgreSQL | - | Not yet run | Not yet run | - |
 | Google Cloud SQL | - | Not yet run | Not yet run | - |
-| Neon | - | Not yet run | Not yet run | - |
 
 Do not describe a service as supported before its row is filled in.
 For the services still marked "Not yet run", the documentation's claim
 rests on the design requiring nothing they withhold, which is a
 reasoned expectation rather than a tested fact.
+
+The Neon run passed all 22 trigger-tier checks on PostgreSQL 18.6,
+against `neondb_owner`, on the free plan. The durable tier was not
+verified because enabling logical replication on Neon cannot be
+undone, and the trigger tier does not need it. Roles created from SQL
+on Neon do not inherit `neon_superuser`, and the three Volvra roles
+worked correctly as ordinary roles.
+
+Together the two verified services cover PostgreSQL 17 and 18 on two
+different platforms, which is the more useful pair than two runs on
+one version.
 
 The Supabase run passed all 24 checks with nothing skipped, on the
 free plan, against the `postgres` role that Supabase provides. Two

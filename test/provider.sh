@@ -83,13 +83,26 @@ else
 fi
 
 # Safety: never destroy someone's real history.
+# Existing history is only at risk from the cleanup, which --keep disables.
+# Refusing regardless was wrong: it turned a re-run of a --keep verification
+# into a dead end, and told the reader the schema would be dropped when the
+# flag they passed is the one that stops that happening.
 EXISTING=$(q "SELECT count(*) FROM volvra.change_log" 2>/dev/null)
 if [[ "$EXISTING" =~ ^[0-9]+$ && "$EXISTING" -gt 0 ]]; then
+  if [[ $KEEP -ne 1 ]]; then
+    echo
+    echo "  REFUSING: volvra.change_log already holds $EXISTING row(s) here."
+    echo "  Without --keep this script drops the volvra schema when it"
+    echo "  finishes, which would destroy that history. Either pass --keep,"
+    echo "  or point it at a database whose history you do not need."
+    exit 1
+  fi
   echo
-  echo "  REFUSING: volvra.change_log already holds $EXISTING row(s) here."
-  echo "  This script removes the volvra schema when it finishes, which would"
-  echo "  destroy that history. Point it at a throwaway database."
-  exit 1
+  echo "  NOTE: volvra.change_log already holds $EXISTING row(s), from an"
+  echo "  earlier run or a real installation. --keep means nothing is"
+  echo "  dropped, but this run still adds its own history, and step 7 calls"
+  echo "  volvra.maintain(), which applies the retention policy. On a real"
+  echo "  installation that deletes history older than the policy allows."
 fi
 
 if [[ $ASSUME_YES -ne 1 ]]; then
@@ -176,6 +189,11 @@ PARTS=$(q "SELECT count(*) FROM pg_inherits WHERE inhparent='volvra.change_log':
 
 # ---------------------------------------------------------------------
 head_ "5. an undo, on real data"
+# Every count below is scoped to this run. The probe schema is dropped and
+# recreated each time, but the HISTORY of the dropped table survives -- which
+# is the entire point of Volvra, and which made these assertions count three
+# runs' worth of changes and fail on a re-run against the same database.
+RUN_T0=$(q "SELECT clock_timestamp()")
 "${PSQL[@]}" -q >/dev/null 2>&1 <<'SQL'
 DROP SCHEMA IF EXISTS volvra_probe CASCADE;
 CREATE SCHEMA volvra_probe;
@@ -192,15 +210,19 @@ SELECT pg_sleep(0.2);
 SET volvra.actor = 'provider-check';
 UPDATE volvra_probe.salaries SET amount = 0;
 SQL
-[[ "$(q "SELECT count(*) FROM volvra.change_log WHERE table_name='volvra_probe.salaries'")" == "6" ]] \
+CAPTURED=$(q "SELECT count(*) FROM volvra.change_log
+               WHERE table_name='volvra_probe.salaries' AND ts >= '$RUN_T0'")
+[[ "$CAPTURED" == "6" ]] \
   && ok "6 changes captured (3 inserts, 3 updates)" \
-  || bad "6 changes captured (got $(q "SELECT count(*) FROM volvra.change_log WHERE table_name='volvra_probe.salaries'"))"
-[[ "$(q "SELECT count(DISTINCT actor) FROM volvra.change_log WHERE actor='provider-check'")" -ge 1 ]] \
+  || bad "6 changes captured (got $CAPTURED)"
+[[ "$(q "SELECT count(*) FROM volvra.change_log
+          WHERE actor='provider-check' AND ts >= '$RUN_T0'")" -ge 1 ]] \
   && ok "and the application-declared actor was recorded" \
   || bad "and the application-declared actor was recorded"
 
 PLAN=$(q "SELECT count(*) FROM volvra.preview_undo('volvra_probe.salaries',
             (SELECT at FROM volvra_probe.mark), now())")
+# preview_undo is already bounded by the mark, so it needs no extra scoping.
 [[ "$PLAN" == "3" ]] && ok "preview planned 3 compensating statements" \
                      || bad "preview planned 3 compensating statements (got $PLAN)"
 
@@ -217,9 +239,11 @@ head_ "6. TRUNCATE capture, which needs a statement trigger"
 "${PSQL[@]}" -q -c "ALTER TABLE volvra_probe.t2 ADD PRIMARY KEY (id)" >/dev/null 2>&1
 "${PSQL[@]}" -q -c "SELECT volvra.enable('volvra_probe.t2')" >/dev/null 2>&1
 "${PSQL[@]}" -q -c "TRUNCATE volvra_probe.t2" >/dev/null 2>&1
-[[ "$(q "SELECT count(*) FROM volvra.change_log WHERE table_name='volvra_probe.t2' AND op='D'")" == "3" ]] \
+TRUNCED=$(q "SELECT count(*) FROM volvra.change_log
+              WHERE table_name='volvra_probe.t2' AND op='D' AND ts >= '$RUN_T0'")
+[[ "$TRUNCED" == "3" ]] \
   && ok "a TRUNCATE was captured row by row" \
-  || bad "a TRUNCATE was captured row by row"
+  || bad "a TRUNCATE was captured row by row (got $TRUNCED)"
 
 # ---------------------------------------------------------------------
 head_ "7. maintenance, sealing and verification"
@@ -263,9 +287,15 @@ if [[ "$WAL" == "logical" ]]; then
 else
   skip "wal_level is '$WAL', so the durable tier is unavailable here"
   note "This does NOT affect the trigger tier, which is what most"
-  note "deployments use. To enable it on Aurora or RDS, set"
-  note "rds.logical_replication = 1 in the DB cluster parameter group"
-  note "and reboot the writer instance, then re-run this script."
+  note "deployments use. Enabling logical replication differs by"
+  note "provider, and on some it cannot be undone, so see the"
+  note "Managed Providers document rather than guessing:"
+  note "  Aurora, RDS  rds.logical_replication = 1 in the DB CLUSTER"
+  note "               parameter group, then reboot the writer"
+  note "  Neon         a project setting; NOT reversible, and it"
+  note "               restarts the computes"
+  note "  Supabase     already logical, for its realtime feature"
+  note "Then re-run this script."
 fi
 
 # ---------------------------------------------------------------------
