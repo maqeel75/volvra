@@ -239,6 +239,61 @@ that the owner is subject to it, and a table owner bypasses row-level
 security on most providers regardless. It means the history's read
 restriction on Neon protects other roles, not `neondb_owner`.
 
+## pgEdge Cloud
+
+pgEdge Cloud is the first verified service that gives an application
+role rather than an administrative one, and the difference is worth
+understanding before installing.
+
+The `app` role a database is created with holds CREATE on the database
+but not CREATEROLE. Volvra installs and works with it: capture, undo,
+TRUNCATE capture, maintenance, sealing, and verification all pass. What
+fails is the creation of the three cluster-wide Volvra roles, and
+`volvra.preflight` reports their absence as critical, because without
+them every privilege check degrades to permissive.
+
+Install as the `admin` role, which holds CREATEROLE, or have an
+administrator create the three roles once:
+
+```sql
+CREATE ROLE volvra_viewer NOLOGIN;
+CREATE ROLE volvra_operator NOLOGIN;
+CREATE ROLE volvra_admin NOLOGIN;
+GRANT volvra_viewer TO volvra_operator;
+GRANT volvra_operator TO volvra_admin;
+```
+
+The durable tier needs one more grant. `wal_level` is already
+`logical`, but neither role carries the REPLICATION attribute, so
+creating a slot fails with `permission denied to use replication
+slots`. An administrator grants it:
+
+```sql
+ALTER ROLE admin REPLICATION;
+```
+
+### Distributed clusters
+
+One question is open and matters only on a multi-node pgEdge cluster:
+whether Volvra should capture changes that arrive through replication,
+or only changes written locally.
+
+PostgreSQL does not fire an ordinary `AFTER` trigger for rows applied
+by logical replication; a trigger has to be created `ENABLE ALWAYS` for
+that. Volvra creates ordinary triggers, so on a multi-master cluster
+each node would record the changes written to that node and not those
+replicated from its peers. History would be per node, and an undo on
+one node would neither see nor revert a change made on another.
+
+Whether that is right depends on what an undo should mean across
+nodes, and the answer is not obvious: capturing replicated changes as
+well would record every change on every node, which is complete but
+duplicated, and undoing on one node would then replicate the undo to
+the others. Establish the intended behaviour before covering tables on
+a distributed cluster. The verification in this document runs on one
+connection and cannot detect the difference, so a pass says nothing
+either way.
+
 ## What to record
 
 Report a verification with the service, the engine version, the result
@@ -251,11 +306,23 @@ unverified until someone runs the script and records the result:
 
 | Service | Engine version | Trigger tier | Durable tier | Verified |
 |---|---|---|---|---|
-| Supabase | PostgreSQL 17.6 | Passed | Passed | 2026-09-11 |
-| Neon | PostgreSQL 18.6 | Passed | Not yet run | 2026-09-11 |
+| Supabase | PostgreSQL 17.6 | Passed | Passed end to end | 2026-09-11 |
+| Neon | PostgreSQL 18.6 | Passed | Passed end to end | 2026-09-11 |
+| pgEdge Cloud | PostgreSQL 16.15 | Passed | Needs a grant | 2026-09-11 |
 | Amazon Aurora PostgreSQL | - | Not yet run | Not yet run | - |
 | Amazon RDS for PostgreSQL | - | Not yet run | Not yet run | - |
 | Google Cloud SQL | - | Not yet run | Not yet run | - |
+
+The durable tier column distinguishes two things, because
+`test/provider.sh` alone cannot tell them apart. "Preconditions met"
+means `wal_level` is logical, a `pgoutput` slot can be created, and
+`volvra.companion_setup` reports ready. "Passed end to end" means the
+companion was actually run against that service: it streamed changes
+into an archive, the archive verified, the in-database history was
+then purged entirely, the archive was restored over it, and an undo
+driven only by that restored history put the data back. That is the
+claim the durable tier exists to make, and only the second form
+establishes it.
 
 Do not describe a service as supported before its row is filled in.
 For the services still marked "Not yet run", the documentation's claim
@@ -263,15 +330,43 @@ rests on the design requiring nothing they withhold, which is a
 reasoned expectation rather than a tested fact.
 
 The Neon run passed all 22 trigger-tier checks on PostgreSQL 18.6,
-against `neondb_owner`, on the free plan. The durable tier was not
-verified because enabling logical replication on Neon cannot be
-undone, and the trigger tier does not need it. Roles created from SQL
-on Neon do not inherit `neon_superuser`, and the three Volvra roles
+against `neondb_owner`, on the free plan. Roles created from SQL on
+Neon do not inherit `neon_superuser`, and the three Volvra roles
 worked correctly as ordinary roles.
+
+The durable tier was then verified end to end on Neon, after enabling
+logical replication for the project. The companion created its slot,
+streamed three changes into an archive of one segment, and that
+archive verified with its chain intact. `volvra.purge` then removed
+every row of in-database history, the archive was restored over the
+empty history, and an undo driven entirely by the restored changes put
+both altered rows back to their original values. The history survived
+the loss of the database's own copy of it, which is the whole purpose
+of the durable tier and the first time it has been demonstrated
+against a managed service rather than a container.
+
+Two operational notes from that run. Use `--segment-bytes` smaller
+than the 64 MB default for a short test, because a segment reaches the
+manifest only when it rotates, and a clean shutdown is what rotates
+the last one. Drop the slot afterwards: on Neon a consumed slot keeps
+the compute awake and defeats scale to zero, and an unconsumed slot
+retains write-ahead log.
 
 Together the two verified services cover PostgreSQL 17 and 18 on two
 different platforms, which is the more useful pair than two runs on
 one version.
+
+The durable tier is verified end to end on Supabase as well. The
+companion streamed three changes into an archive of two segments, the
+archive verified, `volvra.purge` emptied the in-database history, the
+archive was restored over it, and an undo driven only by restored
+history put both altered rows back. Supabase needs no parameter change
+for this: `wal_level` is already `logical` for its realtime feature,
+and the `postgres` role may create its own slot.
+
+Drop the slot when a verification finishes. The free plan gives 500 MB
+of database storage in total, and an abandoned slot retains
+write-ahead log until it is dropped.
 
 The Supabase run passed all 24 checks with nothing skipped, on the
 free plan, against the `postgres` role that Supabase provides. Two

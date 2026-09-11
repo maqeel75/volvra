@@ -40,12 +40,17 @@ done
 
 PSQL=(psql -v ON_ERROR_STOP=1 -X)
 [[ -n "$DSN" ]] && PSQL+=("$DSN")
-# Notices are suppressed for value queries only. preview_undo() deliberately
-# raises one, and with stderr merged it landed inside the value being compared
-# -- so a correct answer of "3" arrived as "NOTICE: ...\n3" and failed. The
-# sections that print output for the reader call psql directly and still show
-# notices, which is where they belong.
-q()  { PGOPTIONS='-c client_min_messages=warning' "${PSQL[@]}" -tAc "$1" 2>&1 \
+# Notices are filtered out of value queries. preview_undo() deliberately raises
+# one, and with stderr merged it landed inside the value being compared -- so a
+# correct answer of "3" arrived as "NOTICE: ...\n3" and failed.
+#
+# Filtered rather than suppressed with PGOPTIONS: a connection pooler rejects
+# startup parameters it does not know, and PgBouncer refuses
+# client_min_messages outright, so setting it made this script unable to
+# connect through any pooled endpoint at all. Errors are deliberately not
+# filtered, because section 0 reads them to report why a connection failed.
+q()  { "${PSQL[@]}" -tAc "$1" 2>&1 \
+         | grep -vE '^(NOTICE|WARNING|DETAIL|HINT|CONTEXT|LINE [0-9])' \
          | tr -d '\r'; }
 run(){ "${PSQL[@]}" -f "$1" 2>&1; }
 
@@ -71,6 +76,23 @@ note "database   $DBNAME"
 note "server     $SRV"
 note "role       $WHOAMI (superuser: $IS_SUPER)"
 note "provider   $(q "SELECT coalesce(nullif(current_setting('rds.extensions', true), ''), 'n/a')" | cut -c1-48)"
+
+# A pooled endpoint gives answers this script cannot trust. Volvra records the
+# application-declared actor through a session setting, and a transaction-mode
+# pooler hands the session to another client between transactions; a pooler
+# also cannot create a replication slot. Providers hand out the pooled host by
+# default, so this is the likeliest way to get a misleading pass.
+case "${DSN}${PGHOST:-}" in
+  *-pooler.*|*pgbouncer*|*:6543/*)
+    echo
+    echo "  WARNING: this looks like a pooled endpoint."
+    echo "  Use the direct one -- usually the same host with '-pooler'"
+    echo "  removed. A transaction-mode pooler breaks the session setting"
+    echo "  Volvra reads the actor from, and cannot create a replication"
+    echo "  slot, so section 5 and section 9 would report the pooler's"
+    echo "  limits as though they were Volvra's."
+    ;;
+esac
 
 # A provider's master user must NOT be a superuser. If it is, this is not
 # the environment we mean to be testing.
@@ -138,8 +160,17 @@ if [[ "$CREATEROLE" == "t" ]]; then
   ok "CREATEROLE, so the three volvra_* roles can be created"
 else
   bad "CREATEROLE is absent -- the volvra_* roles cannot be created"
-  note "Without them the privilege checks degrade to permissive. Grant"
-  note "CREATEROLE, or have an administrator create the roles."
+  note "Volvra still installs and works, as the checks below show, but"
+  note "its privilege model degrades to permissive, which preflight"
+  note "reports as critical. A provider that gives you an"
+  note "application-scoped role rather than an admin one needs one"
+  note "setup step, run by whoever does hold CREATEROLE:"
+  note "  CREATE ROLE volvra_viewer NOLOGIN;"
+  note "  CREATE ROLE volvra_operator NOLOGIN;"
+  note "  CREATE ROLE volvra_admin NOLOGIN;"
+  note "  GRANT volvra_viewer TO volvra_operator;"
+  note "  GRANT volvra_operator TO volvra_admin;"
+  note "Alternatively: ALTER ROLE $WHOAMI CREATEROLE;"
 fi
 
 head_ "2. the three cluster-wide roles"
@@ -279,8 +310,11 @@ if [[ "$WAL" == "logical" ]]; then
   else
     bad "a pgoutput logical slot can be created"
     printf '        | %s\n' "$(head -1 <<<"$SLOT")"
-    note "On RDS and Aurora the role needs rds_replication:"
-    note "  GRANT rds_replication TO $WHOAMI;"
+    note "The role needs the REPLICATION attribute, or the provider's"
+    note "equivalent, granted by an administrator:"
+    note "  Aurora, RDS  GRANT rds_replication TO $WHOAMI;"
+    note "  elsewhere    ALTER ROLE $WHOAMI REPLICATION;"
+    note "The trigger tier does not need this; only the companion does."
   fi
   "${PSQL[@]}" -c "SELECT step, object, detail FROM volvra.companion_setup('volvra_probe')" 2>&1 \
     | sed 's/^/        /' | head -8

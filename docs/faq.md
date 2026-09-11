@@ -125,12 +125,19 @@ every change.
 Volvra is designed for exactly those platforms, and requires nothing
 they withhold.
 
-Supabase and Neon are verified. A full verification run passes on
-Supabase on PostgreSQL 17.6, covering both the trigger tier and the
-durable tier, and on Neon on PostgreSQL 18.6 for the trigger tier.
-Both runs used the free plan. The other platforms have not yet been
-validated against a live instance, so treat those as the design target
-rather than as a tested claim. The
+Supabase, Neon, and pgEdge Cloud are verified, covering PostgreSQL 16,
+17, and 18. The trigger tier passes on all three: Supabase on
+PostgreSQL 17.6, Neon on 18.6, and pgEdge Cloud on 16.15.
+
+The durable tier is verified end to end on both Supabase and Neon. On
+each, the companion archived changes, the in-database history was
+purged entirely, the archive was restored over it, and an undo driven
+only by restored history put the data back. pgEdge Cloud needs the
+REPLICATION attribute granted before the durable tier can run.
+
+The other platforms have not yet been validated against a live
+instance, so treat those as the design target rather than as a tested
+claim. The
 [Managed Providers](managed_providers.md) document records what has
 been verified and how to verify the rest.
 
