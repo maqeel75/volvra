@@ -123,31 +123,79 @@ restoring it gives back the ability to undo.
 
 ## Recovering after losing the database
 
-When the database itself is gone, the order of operations matters. Do
-the following, in this sequence:
+`volvra.replay` carries a restored database forward. Where
+`volvra.undo` applies the inverse of each change, newest first,
+`volvra.replay` applies each change again in its original direction,
+oldest first. Restore an older backup, load the archived history over
+it, and replay the window to reapply the work done since:
 
-1. Restore the database from your backup, by whatever means you
-    normally use, such as a snapshot or point-in-time recovery.
-2. Install Volvra into the restored database, if it is not already
-    present.
-3. Load the archived history over it:
+```sql
+SELECT count(*)
+FROM volvra.replay('orders', :backup_taken_at, now(), confirm => true);
+```
+
+!!! warning "Replay covers covered tables, and nothing else"
+
+    A replay reapplies row changes to tables that were covered at the
+    time. It is not point-in-time recovery. Schema changes, tables
+    that were not covered, and anything outside the history are not
+    reapplied, and a replay cannot invent a change that was never
+    captured. Where the archive has a gap, the rows in that gap stay
+    missing.
+
+The guard is what makes this safe rather than merely useful. Every
+statement a replay issues asserts that the row still holds the image
+captured *before* that change, and a statement matching no row is a
+conflict rather than a silent no-op. A replay therefore cannot
+overwrite a row that has moved on, cannot apply the same change twice,
+and cannot apply half a selection, because the whole plan runs in one
+transaction. Preview it first, exactly as with an undo:
+
+```sql
+SELECT seq, table_name, op, pk, conflict
+FROM volvra.preview_replay('orders', :backup_taken_at, now());
+```
+
+### Volvra and point-in-time recovery compose
+
+The two tools are at their best together, and the order is what makes
+it work. Recover the data as far forward as possible first, then use
+Volvra to remove the one change you did not want:
+
+1. Recover the database to the latest point you can, using
+    point-in-time recovery or the most recent backup. Recover past the
+    mistake rather than before it: the aim is to get every good change
+    back, mistake included.
+2. Install Volvra, if the recovered database does not already have it.
+3. Load the archived history, which matters when the recovered
+    database's own history is older than the changes you need to
+    reverse, or was purged, or was never there:
 
     ```bash
     volvra-companion restore --archive /srv/archive --dsn "$DATABASE_URL"
     ```
 
-4. Undo whatever needs undoing, in the ordinary way, with the conflict
-    guard and the blast-radius cap both applying as usual.
+4. Undo the mistake alone, with the conflict guard and the
+    blast-radius cap applying as usual.
 
-Step 3 is what the companion buys. Without it, the restored database
-knows only the history that existed when the backup was taken, and
-every change after that point is invisible to an undo.
+Recovering *past* the mistake in step 1 is the part that looks wrong
+and is not. Point-in-time recovery would otherwise force a choice
+between the mistake and everything that happened after it. Recovering
+everything and then reversing one transaction keeps both.
 
-Volvra has no forward replay. The archive cannot roll a Tuesday backup
-forward to Thursday's state, because that is point-in-time recovery's
-job and PostgreSQL already does it through write-ahead log archiving.
-What the archive restores is the record of what happened, so that
-individual changes can be reversed.
+### What the restored archive is good for
+
+When the data cannot be recovered past a point, the archive is still
+worth loading. It answers what the rows held before they were lost,
+which is often what an incident actually needs:
+
+```sql
+SELECT change_id, ts, op, actor, old_row, new_row
+FROM volvra.history('orders', '{"id": 42}');
+```
+
+That is a record to read, reconcile, and report from, not something
+Volvra can apply for you.
 
 ## Next Steps
 

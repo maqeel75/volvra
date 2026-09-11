@@ -142,6 +142,41 @@ The function raises `serialization_failure` when a row has changed and
 exceeds the cap, `foreign_key_violation` when a constraint blocks the
 plan, and `invalid_parameter_value` when the target was never covered.
 
+### volvra.replay
+
+Reapplies each change in a selection in its original direction, oldest
+first. Requires membership in `volvra_operator`, and the caller still
+needs their own rights on the target table, because the function is
+SECURITY INVOKER.
+
+Replay is the mirror of `volvra.undo` and takes the same arguments:
+`target`, `from_ts`, `to_ts`, `confirm`, `max_rows`, `skip_conflicts`,
+`txid`, `actor`, `db_user`, `predicate`, and `tables`. It returns the
+same `volvra.undo_step` rows, where `inverse_op` holds the operation
+the step applied, which for a replay is the original operation.
+
+Every statement asserts that the row still holds the image captured
+before the change. A row that has moved on is a conflict, and the
+whole replay refuses unless `skip_conflicts` is true, in which case
+that row is left exactly as it is. There is deliberately no option to
+apply a change over a row that does not match, because that is how a
+replay would corrupt data.
+
+The function refuses a selection containing a TRUNCATE that was not
+captured, applies the blast-radius cap, takes the same advisory locks
+as an undo, and runs in one transaction. It records its work in
+`volvra.undo_log` with `operation` set to `replay`.
+
+### volvra.preview_replay
+
+Shows what `volvra.replay` would do, and changes nothing. Requires
+membership in `volvra_viewer`.
+
+The function takes the same selector arguments as
+`volvra.preview_undo` and returns the same columns, including
+`conflict`, which marks a row that does not hold the image captured
+before its change.
+
 ### volvra.undo_txid
 
 Reverts one transaction across every table the transaction touched.

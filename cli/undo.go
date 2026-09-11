@@ -25,13 +25,22 @@ func cmdPreview(ctx context.Context, db *DB, args []string) (int, error) {
 	return exitOK, nil
 }
 
-// showPlan prints the compensating SQL and returns how many changes it covers
-// and how many of their rows have moved on since capture.
+// showPlan prints the compensating SQL for an undo.
 func showPlan(ctx context.Context, db *DB, s *Selector) (rows, conflicts int64, err error) {
+	return showPlanDir(ctx, db, s, false)
+}
+
+// showPlanDir prints the plan in either direction and returns how many changes
+// it covers and how many of their rows no longer match what the guard expects.
+func showPlanDir(ctx context.Context, db *DB, s *Selector, replay bool) (rows, conflicts int64, err error) {
+	fn, label := "volvra.preview_undo", "compensating sql"
+	if replay {
+		fn, label = "volvra.preview_replay", "sql to reapply"
+	}
 	t, err := db.Query(ctx, `
-		SELECT seq, table_name AS "table", op, inverse_op AS inverse,
-		       pk, conflict, left(stmt, 70) || '…' AS "compensating sql"
-		FROM volvra.preview_undo(`+call+`)`, s.args()...)
+		SELECT seq, table_name AS "table", op, inverse_op AS applied,
+		       pk, conflict, left(stmt, 70) || '…' AS "`+label+`"
+		FROM `+fn+`(`+call+`)`, s.args()...)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -48,6 +57,75 @@ func showPlan(ctx context.Context, db *DB, s *Selector) (rows, conflicts int64, 
 		}
 	}
 	return rows, conflicts, nil
+}
+
+// cmdReplay is cmdUndo's mirror. It shares the selector, the plan display and
+// the confirmation, because a replay changes data exactly as an undo does and
+// deserves the same ceremony before it runs.
+func cmdReplay(ctx context.Context, db *DB, args []string, yes bool) (int, error) {
+	var s Selector
+	if err := s.parse(args); err != nil {
+		return exitError, err
+	}
+
+	rows, conflicts, err := showPlanDir(ctx, db, &s, true)
+	if err != nil {
+		return exitError, err
+	}
+	if rows == 0 {
+		fmt.Println("\nNothing to replay for that selection.")
+		return exitOK, nil
+	}
+
+	fmt.Printf("\n%d change(s) will be reapplied", rows)
+	if conflicts > 0 {
+		fmt.Printf(", and %d row(s) do not hold the image captured before the change",
+			conflicts)
+		if s.SkipConfl {
+			fmt.Print(" -- those will be left alone")
+		} else {
+			fmt.Print(".\nReplay will refuse rather than overwrite them; pass " +
+				"--skip-conflicts to\napply the rest and leave those alone")
+		}
+	}
+	fmt.Println(".")
+
+	ok, err := confirm("Apply this replay?", yes)
+	if err != nil {
+		return exitError, err
+	}
+	if !ok {
+		fmt.Println("Nothing was changed.")
+		return exitError, nil
+	}
+
+	sql := `SELECT seq, table_name AS "table", inverse_op AS applied, pk, status
+	        FROM volvra.replay(` + call + `,
+	          confirm => true, skip_conflicts => $9::boolean`
+	a := append(s.args(), s.SkipConfl)
+	if s.MaxRows != "" {
+		sql += `, max_rows => $10::integer`
+		a = append(a, s.MaxRows)
+	}
+	sql += `)`
+
+	t, err := db.Query(ctx, sql, a...)
+	if err != nil {
+		return exitError, err
+	}
+	t.Write(os.Stdout)
+	return exitOK, nil
+}
+
+func cmdPreviewReplay(ctx context.Context, db *DB, args []string) (int, error) {
+	var s Selector
+	if err := s.parse(args); err != nil {
+		return exitError, err
+	}
+	if _, _, err := showPlanDir(ctx, db, &s, true); err != nil {
+		return exitError, err
+	}
+	return exitOK, nil
 }
 
 func cmdUndo(ctx context.Context, db *DB, args []string, yes bool) (int, error) {

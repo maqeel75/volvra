@@ -94,12 +94,14 @@ INSERT INTO pm_fn (fn, call_sql, tier) VALUES
   -- viewer, but also needs SELECT on the table
   ('history',              $$SELECT count(*) FROM volvra.history('pm.t','{"id":1}')$$,  'viewer_table'),
   ('preview_undo',         $$SELECT count(*) FROM volvra.preview_undo('pm.t','2000-01-01','2000-01-02')$$, 'viewer_table'),
+  ('preview_replay',       $$SELECT count(*) FROM volvra.preview_replay('pm.t','2000-01-01','2000-01-02')$$, 'viewer_table'),
   -- A txid names no table, so the plan is unscoped and read privilege is
   -- required on EVERY covered table.  No role in this matrix has that, and
   -- that refusal is the correct answer rather than a gap.
   ('preview_undo_txid',    $$SELECT count(*) FROM volvra.preview_undo_txid(1)$$,        'viewer_all'),
   -- operator
   ('undo',                 $$SELECT count(*) FROM volvra.undo('pm.t','2000-01-01','2000-01-02', confirm => true)$$, 'operator'),
+  ('replay',               $$SELECT count(*) FROM volvra.replay('pm.t','2000-01-01','2000-01-02', confirm => true)$$, 'operator'),
   ('undo_txid',            $$SELECT count(*) FROM volvra.undo_txid(1, confirm => true)$$, 'viewer_all'),
   -- admin
   -- Attaching or dropping a trigger needs ownership of the table, which

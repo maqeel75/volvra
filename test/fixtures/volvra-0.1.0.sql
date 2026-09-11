@@ -267,8 +267,15 @@ CREATE TABLE IF NOT EXISTS volvra.undo_log (
   confirmed   boolean     NOT NULL,
   cap         bigint,
   cap_override boolean    NOT NULL DEFAULT false,
+  -- 'undo' reverses changes; 'replay' reapplies them forward.  Both write
+  -- here, because both change data and an auditor needs to tell them apart.
+  operation   text        NOT NULL DEFAULT 'undo'
+                          CHECK (operation IN ('undo', 'replay')),
   txid        bigint      NOT NULL DEFAULT txid_current()
 );
+
+ALTER TABLE volvra.undo_log
+  ADD COLUMN IF NOT EXISTS operation text NOT NULL DEFAULT 'undo';
 
 -- ---------------------------------------------------------------------
 -- Tamper evidence (v3)
@@ -1750,6 +1757,28 @@ $$;
 
 -- Per-table metadata, memoised for the life of one plan.  Without this a plan
 -- spanning tables would re-read the catalog for every row.
+-- Columns whose value PostgreSQL derives, and which a conflict guard must
+-- therefore ignore.
+--
+-- A generated column is a function of other columns, so comparing it tells you
+-- nothing the source columns have not already told you.  Worse, it breaks:
+-- PostgreSQL's logical replication does not send generated columns, so an
+-- image restored from a companion archive carries an explicit null where the
+-- live row holds a computed value, and `to_jsonb(tgt) @> expected` fails on
+-- every row of such a table.  That made archive-restored history unusable for
+-- both undo and replay on any table with a generated column.
+CREATE OR REPLACE FUNCTION volvra._derived_cols(target regclass) RETURNS text[]
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT coalesce(array_agg(a.attname::text ORDER BY a.attnum), '{}')
+  FROM pg_attribute a
+  WHERE a.attrelid = target
+    AND a.attnum > 0
+    AND NOT a.attisdropped
+    AND a.attgenerated <> ''
+$$;
+
 CREATE OR REPLACE FUNCTION volvra._meta(target regclass) RETURNS jsonb
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, pg_temp
@@ -1759,6 +1788,7 @@ AS $$
     'cols',     to_jsonb(volvra._columns(target)),
     'setcols',  to_jsonb(volvra._setcols(target)),
     'pkcols',   to_jsonb(volvra._pkcols(target)),
+    'derived',  to_jsonb(volvra._derived_cols(target)),
     'identity', volvra._has_system_identity(target))
 $$;
 
@@ -1783,7 +1813,13 @@ CREATE OR REPLACE FUNCTION volvra._plan(
   p_db_users  text[]      DEFAULT NULL,
   p_predicate text        DEFAULT NULL,
   p_guard     boolean     DEFAULT true,
-  p_probe     boolean     DEFAULT false)
+  p_probe     boolean     DEFAULT false,
+  -- false builds the inverse of each change, newest first, which is an undo.
+  -- true builds each change again in its original direction, oldest first,
+  -- which is a replay.  The two are mirror images and share every part of
+  -- this function deliberately: one plan builder, one guard, one apply loop,
+  -- so a safety property cannot hold for one direction and not the other.
+  p_replay    boolean     DEFAULT false)
 RETURNS SETOF volvra.undo_step
 LANGUAGE plpgsql STABLE
 SET search_path = pg_catalog, pg_temp
@@ -1801,6 +1837,14 @@ DECLARE
   v_setcols  text[];
   v_upcols   text[];
   v_pkcols   text[];
+  v_derived  text[];
+  -- The images a guard compares, with derived columns removed.
+  v_gold     jsonb;
+  v_gnew     jsonb;
+  -- Undo walks backwards through history; replay walks forwards. Everything
+  -- else about the two is identical.
+  v_dir      text := CASE WHEN p_replay THEN 'ASC' ELSE 'DESC' END;
+  v_img      jsonb;
   r          record;
 BEGIN
   -- `newest` marks the most recent change to each row within this selection,
@@ -1815,8 +1859,9 @@ BEGIN
     'SELECT c.id, c.table_name, c.op, c.pk, c.old_row, c.new_row, '
     '       c.actor, c.db_user, c.ts, '
     '       (row_number() OVER (PARTITION BY c.table_name, c.pk '
-    '                           ORDER BY c.id DESC) = 1) AS newest '
-    'FROM volvra.change_log c WHERE %s ORDER BY c.id DESC', v_where)
+    '                           ORDER BY c.id %1$s) = 1) AS first_seen '
+    'FROM volvra.change_log c WHERE %2$s ORDER BY c.id %1$s',
+    v_dir, v_where)
   LOOP
     -- A TRUNCATE whose rows were never captured cannot be inverted, and
     -- stepping over it would produce a half-restored table that looks whole.
@@ -1844,6 +1889,16 @@ BEGIN
     v_cols    := ARRAY(SELECT jsonb_array_elements_text(v_m -> 'cols'));
     v_setcols := ARRAY(SELECT jsonb_array_elements_text(v_m -> 'setcols'));
     v_pkcols  := ARRAY(SELECT jsonb_array_elements_text(v_m -> 'pkcols'));
+    v_derived := ARRAY(SELECT jsonb_array_elements_text(v_m -> 'derived'));
+
+    -- A guard never compares a derived column. Stripping here rather than in
+    -- each builder means undo and replay cannot diverge on it.
+    v_gold := CASE WHEN r.old_row IS NULL THEN NULL
+                   WHEN v_derived = '{}' THEN r.old_row
+                   ELSE r.old_row - v_derived END;
+    v_gnew := CASE WHEN r.new_row IS NULL THEN NULL
+                   WHEN v_derived = '{}' THEN r.new_row
+                   ELSE r.new_row - v_derived END;
 
     IF cardinality(v_pkcols) = 0 THEN
       RAISE EXCEPTION 'volvra: % has no PRIMARY KEY', r.table_name;
@@ -1861,17 +1916,59 @@ BEGIN
     v_step.status     := 'planned';
     v_step.conflict   := NULL;
 
-    IF r.op = 'U' THEN
+    -- Validate the image this step will apply, which differs by direction:
+    -- an undo writes the "before" image back, a replay writes the "after"
+    -- image again.
+    IF p_replay THEN
+      v_img := CASE WHEN r.op = 'D' THEN r.old_row ELSE r.new_row END;
+      IF v_img IS NULL THEN
+        RAISE EXCEPTION 'volvra: change % on % carries no image to replay',
+          r.id, r.table_name
+          USING DETAIL = format('op %s has no %s image', r.op,
+                                CASE WHEN r.op = 'D' THEN 'old_row' ELSE 'new_row' END),
+                HINT = 'Redacted history cannot be replayed. Narrow the selection.',
+                ERRCODE = 'data_exception';
+      END IF;
+      PERFORM volvra._validate_image(v_rel, v_img, r.op <> 'U');
+    ELSIF r.op = 'U' THEN
       -- a delta drives an UPDATE, so it need not be complete
       PERFORM volvra._validate_image(v_rel, r.old_row, false);
     ELSE
       PERFORM volvra._validate_image(v_rel, coalesce(r.old_row, r.new_row), true);
     END IF;
 
-    IF r.op = 'I' THEN
+    IF p_replay THEN
+      -- The same three builders, with the images mirrored. An undo asserts
+      -- the row still holds what was captured *after* the change and writes
+      -- back what was there *before*; a replay asserts it still holds the
+      -- *before* image and writes the *after* one. Neither can be built
+      -- without a guard, which is what keeps a misapplied replay impossible
+      -- rather than merely unlikely.
+      v_step.inverse_op := r.op;
+      IF r.op = 'I' THEN
+        v_step.stmt := volvra._stmt_insert(
+          r.table_name, v_cols, (v_m ->> 'identity')::boolean, r.new_row, p_guard);
+      ELSIF r.op = 'D' THEN
+        v_step.stmt := volvra._stmt_delete(
+          r.table_name, v_pkcols, r.pk, CASE WHEN p_guard THEN v_gold END);
+      ELSE
+        v_upcols := ARRAY(
+          SELECT k FROM jsonb_object_keys(r.new_row) AS k WHERE k = ANY (v_setcols));
+        IF cardinality(v_upcols) = 0 THEN
+          RAISE EXCEPTION 'volvra: change % on % carries no replayable column',
+            r.id, r.table_name
+            USING DETAIL = format('captured columns: %s', r.new_row),
+                  ERRCODE = 'data_exception';
+        END IF;
+        v_step.stmt := volvra._stmt_update(
+          r.table_name, v_upcols, v_pkcols, r.new_row, r.pk,
+          CASE WHEN p_guard THEN v_gold END);
+      END IF;
+
+    ELSIF r.op = 'I' THEN
       v_step.inverse_op := 'D';
       v_step.stmt := volvra._stmt_delete(
-        r.table_name, v_pkcols, r.pk, CASE WHEN p_guard THEN r.new_row END);
+        r.table_name, v_pkcols, r.pk, CASE WHEN p_guard THEN v_gnew END);
     ELSIF r.op = 'D' THEN
       v_step.inverse_op := 'I';
       v_step.stmt := volvra._stmt_insert(
@@ -1894,25 +1991,34 @@ BEGIN
 
       v_step.stmt := volvra._stmt_update(
         r.table_name, v_upcols, v_pkcols, r.old_row, r.pk,
-        CASE WHEN p_guard THEN r.new_row END);
+        CASE WHEN p_guard THEN v_gnew END);
     END IF;
 
     IF p_probe THEN
-      -- Only the newest change to a row can be compared against the live row.
-      -- Older changes to the same row are reached only after the newer ones
-      -- have been reverted, at which point the state matches by construction,
+      -- Only the first change to a row *in application order* can be
+      -- compared against the live row: for an undo that is the newest, for a
+      -- replay the oldest. Later steps are reached only once the earlier ones
+      -- have been applied, at which point the state matches by construction,
       -- so probing them against the *current* row reports conflicts that will
       -- not happen.
-      IF NOT r.newest THEN
+      IF NOT r.first_seen THEN
         v_step.conflict := false;
       ELSE
         EXECUTE volvra._stmt_probe(r.table_name, v_pkcols, r.pk) INTO v_live;
         v_step.conflict := CASE
+          WHEN p_replay THEN CASE
+            -- replaying an insert: the row must not be there yet
+            WHEN r.op = 'I' THEN v_live IS NOT NULL
+            -- replaying an update or a delete: the row must be there, still
+            -- holding the image captured before the change
+            WHEN v_live IS NULL THEN true
+            ELSE NOT (v_live @> v_gold)
+          END
           WHEN r.op = 'D' THEN v_live IS NOT NULL        -- should still be gone
           WHEN v_live IS NULL THEN true                  -- row vanished
           -- the captured columns must still hold their captured values; other
           -- columns having moved on is not a conflict
-          ELSE NOT (v_live @> r.new_row)
+          ELSE NOT (v_live @> v_gnew)
         END;
       END IF;
     END IF;
@@ -2244,6 +2350,253 @@ BEGIN
     RAISE NOTICE 'volvra: reverted % change(s) across %',
       v_count, coalesce(array_to_string(v_tabs, ', '), 'nothing');
   END IF;
+END
+$$;
+
+-- ---------------------------------------------------------------------
+-- Replay: the mirror of undo
+--
+-- undo() walks history backwards and applies the inverse of each change.
+-- replay() walks it forwards and applies each change again.  They share
+-- volvra._plan(), the conflict guard, the blast-radius cap, the advisory
+-- locks and the apply loop, because a safety property that held for one
+-- direction and not the other would be worse than no property at all.
+--
+-- What replay is for: a database recovered from a backup that predates
+-- changes you still hold history for.  Restore the archive, then replay the
+-- window forward to carry the database past the backup.  It is not
+-- point-in-time recovery and does not pretend to be: it reapplies changes to
+-- covered tables only, and refuses any change it cannot apply exactly.
+--
+-- The guard is the whole safety argument.  Every statement asserts that the
+-- row still holds the image captured *before* the change, by jsonb
+-- containment, and a statement that matches no row is a conflict rather than
+-- a silent no-op.  A replay therefore cannot write over a row that has moved
+-- on, cannot apply a change twice, and cannot apply half of a selection: the
+-- whole thing is one transaction.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION volvra.replay(
+  target         regclass    DEFAULT NULL,
+  from_ts        timestamptz DEFAULT NULL,
+  to_ts          timestamptz DEFAULT NULL,
+  confirm        boolean     DEFAULT false,
+  max_rows       integer     DEFAULT NULL,
+  -- On a row that does not hold the image captured before the change: refuse
+  -- the whole replay (default), or apply everything else and leave that row
+  -- alone.  There is deliberately no "apply anyway" option -- reapplying a
+  -- change over a row that has moved on is precisely how a replay would
+  -- corrupt data.
+  skip_conflicts boolean     DEFAULT false,
+  txid           bigint      DEFAULT NULL,
+  actor          text        DEFAULT NULL,
+  db_user        text        DEFAULT NULL,
+  predicate      text        DEFAULT NULL,
+  tables         regclass[]  DEFAULT NULL)
+RETURNS SETOF volvra.undo_step
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_tables  regclass[] := volvra._resolve_tables(target, tables);
+  v_txids   bigint[]   := CASE WHEN txid    IS NULL THEN NULL ELSE ARRAY[txid]    END;
+  v_actors  text[]     := CASE WHEN actor   IS NULL THEN NULL ELSE ARRAY[actor]   END;
+  v_dbusers text[]     := CASE WHEN db_user IS NULL THEN NULL ELSE ARRAY[db_user] END;
+  v_cap     bigint := coalesce(max_rows, volvra.get_setting('max_undo_rows')::bigint, 10000);
+  v_plan    volvra.undo_step[];
+  v_step    volvra.undo_step;
+  v_count   bigint;
+  v_tabs    text[];
+  v_skipped bigint := 0;
+  v_rc      bigint;
+  v_lock    text;
+  v_live    jsonb;
+BEGIN
+  IF confirm THEN
+    PERFORM volvra._require('volvra_operator');
+  ELSE
+    PERFORM volvra._require('volvra_viewer');
+  END IF;
+  PERFORM volvra._require_scope(v_tables, from_ts, to_ts, v_txids, v_actors,
+                                v_dbusers, predicate);
+  PERFORM volvra._require_read_all(v_tables);
+  PERFORM volvra._require_coverage(v_tables);
+
+  IF from_ts IS NOT NULL AND to_ts IS NOT NULL AND from_ts >= to_ts THEN
+    RAISE EXCEPTION 'volvra.replay: empty window (from_ts % >= to_ts %)', from_ts, to_ts;
+  END IF;
+
+  -- Build the plan exactly once.  The blast-radius cap has to be checked before
+  -- anything is applied, which is why this is materialised rather than streamed.
+  SELECT coalesce(array_agg(p ORDER BY p.seq), '{}')
+    INTO v_plan
+  FROM volvra._plan(v_tables, from_ts, to_ts, v_txids, v_actors, v_dbusers,
+                    predicate, true, NOT confirm, p_replay => true) p;
+
+  v_count := cardinality(v_plan);
+
+  SELECT array_agg(DISTINCT s.table_name ORDER BY s.table_name)
+    INTO v_tabs FROM unnest(v_plan) AS s;
+
+  IF v_count > v_cap THEN
+    RAISE EXCEPTION 'volvra.replay: % rows exceeds cap of %', v_count, v_cap
+      USING HINT = 'Narrow the selection, or pass max_rows => N to override deliberately.',
+            ERRCODE = 'program_limit_exceeded';
+  END IF;
+
+  INSERT INTO volvra.undo_log
+    (actor, table_name, from_ts, to_ts, row_count, confirmed, cap, cap_override,
+     db_user, operation)
+  VALUES (volvra._actor(),
+          coalesce(array_to_string(v_tabs, ', '), '(none)'),
+          from_ts, to_ts, v_count, confirm, v_cap,
+          max_rows IS NOT NULL, volvra._db_user(), 'replay');
+
+  IF NOT confirm THEN
+    RAISE NOTICE 'volvra: % change(s) would be replayed. '
+                 'Nothing executed -- re-run with confirm => true.', v_count;
+    RETURN QUERY SELECT * FROM unnest(v_plan);
+    RETURN;
+  END IF;
+
+  -- Serialise replays table by table, in a stable order so two concurrent replays
+  -- of overlapping selections queue rather than deadlock.  Concurrent *writers*
+  -- need no lock: the per-statement guard turns them into conflicts, not races.
+  IF v_tabs IS NOT NULL THEN
+    FOREACH v_lock IN ARRAY v_tabs LOOP
+      PERFORM pg_advisory_xact_lock(hashtextextended('volvra:' || v_lock, 0));
+    END LOOP;
+  END IF;
+
+  -- Reverse-chronological order is right for the data but can trip a foreign
+  -- key when a plan spans related tables -- replaying a cascade wants the parent
+  -- back before its children.  Deferring the checks to COMMIT sidesteps the
+  -- ordering entirely, but only works for constraints declared DEFERRABLE,
+  -- which is what volvra.make_fks_deferrable() is for.
+  BEGIN
+    SET CONSTRAINTS ALL DEFERRED;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  FOREACH v_step IN ARRAY v_plan LOOP
+    BEGIN
+      EXECUTE v_step.stmt;
+    EXCEPTION WHEN foreign_key_violation THEN
+      RAISE EXCEPTION 'volvra.replay: a foreign key blocked replaying %', v_step.table_name
+        USING DETAIL = format('row %s (change %s): %s', v_step.pk, v_step.change_id, SQLERRM),
+              HINT = 'This plan spans related tables and the constraint is not '
+                     'DEFERRABLE. Run volvra.make_fks_deferrable() once as an '
+                     'admin, or replay one table at a time in dependency order.',
+              ERRCODE = 'foreign_key_violation';
+    END;
+    GET DIAGNOSTICS v_rc = ROW_COUNT;
+
+    -- A delete that matched nothing needs one more question asked before it is
+    -- called a conflict: is the row absent, or present but different?
+    --
+    -- Absent means the delete's goal is already met, and the commonest way
+    -- that happens is a cascade. PostgreSQL records the parent delete before
+    -- the child deletes it triggered, so replaying the parent re-fires the
+    -- cascade and the recorded child deletes find nothing left to do. Calling
+    -- those conflicts would make every cascade unreplayable without weakening
+    -- the guard for the whole operation.
+    --
+    -- Present but different is a real conflict: something else is living at
+    -- that key, and deleting it would destroy data this replay knows nothing
+    -- about. Only absence is treated as satisfied.
+    IF v_rc = 0 AND v_step.inverse_op = 'D' THEN
+      EXECUTE volvra._stmt_probe(v_step.table_name,
+                ARRAY(SELECT jsonb_object_keys(v_step.pk)), v_step.pk)
+        INTO v_live;
+      IF v_live IS NULL THEN
+        v_step.status   := 'satisfied';
+        v_step.conflict := false;
+        RETURN NEXT v_step;
+        CONTINUE;
+      END IF;
+    END IF;
+
+    IF v_rc = 1 THEN
+      v_step.status   := 'applied';
+      v_step.conflict := false;
+    ELSIF skip_conflicts THEN
+      -- apply what can still be applied; a row that moved on is left alone,
+      -- never guessed at.
+      v_step.status   := 'skipped';
+      v_step.conflict := true;
+      v_skipped       := v_skipped + 1;
+    ELSE
+      RAISE EXCEPTION 'volvra.replay: % has moved on since this change was captured',
+        v_step.table_name
+        USING DETAIL = format('row %s (change %s, %s by %s) does not hold the image '
+                              'captured before that change, so replaying it would '
+                              'overwrite whatever is there now',
+                              v_step.pk, v_step.change_id, v_step.ts, v_step.db_user),
+              HINT = 'Run preview_replay to see every conflicting row, narrow '
+                     'the selection, or pass skip_conflicts => true to apply the '
+                     'rest and leave these alone.',
+              ERRCODE = 'serialization_failure';
+    END IF;
+
+    RETURN NEXT v_step;
+  END LOOP;
+
+  IF v_skipped > 0 THEN
+    RAISE NOTICE 'volvra: replayed % change(s) across %, skipped % that had moved on',
+      v_count - v_skipped, coalesce(array_to_string(v_tabs, ', '), 'nothing'), v_skipped;
+  ELSE
+    RAISE NOTICE 'volvra: replayed % change(s) across %',
+      v_count, coalesce(array_to_string(v_tabs, ', '), 'nothing');
+  END IF;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION volvra.preview_replay(
+  target      regclass    DEFAULT NULL,
+  from_ts     timestamptz DEFAULT NULL,
+  to_ts       timestamptz DEFAULT NULL,
+  txid        bigint      DEFAULT NULL,
+  actor       text        DEFAULT NULL,
+  db_user     text        DEFAULT NULL,
+  predicate   text        DEFAULT NULL,
+  tables      regclass[]  DEFAULT NULL)
+RETURNS SETOF volvra.undo_step
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_tables    regclass[] := volvra._resolve_tables(target, tables);
+  v_txids     bigint[]   := CASE WHEN txid    IS NULL THEN NULL ELSE ARRAY[txid]    END;
+  v_actors    text[]     := CASE WHEN actor   IS NULL THEN NULL ELSE ARRAY[actor]   END;
+  v_dbusers   text[]     := CASE WHEN db_user IS NULL THEN NULL ELSE ARRAY[db_user] END;
+  v_count     bigint;
+  v_conflicts bigint;
+  v_tabcount  bigint;
+BEGIN
+  PERFORM volvra._require('volvra_viewer');
+  PERFORM volvra._require_scope(v_tables, from_ts, to_ts, v_txids, v_actors,
+                                v_dbusers, predicate);
+  PERFORM volvra._require_read_all(v_tables);
+  PERFORM volvra._require_coverage(v_tables);
+
+  SELECT count(*), count(*) FILTER (WHERE p.conflict), count(DISTINCT p.table_name)
+    INTO v_count, v_conflicts, v_tabcount
+  FROM volvra._plan(v_tables, from_ts, to_ts, v_txids, v_actors, v_dbusers,
+                    predicate, true, true, p_replay => true) p;
+
+  IF v_conflicts > 0 THEN
+    RAISE NOTICE 'volvra: % change(s) across % table(s) would be replayed, but % row(s) '
+                 'do not hold the image captured before the change -- replay will '
+                 'refuse unless you pass skip_conflicts => true',
+      v_count, v_tabcount, v_conflicts;
+  ELSE
+    RAISE NOTICE 'volvra: % change(s) across % table(s) would be replayed '
+                 '(preview only, nothing executed)', v_count, v_tabcount;
+  END IF;
+
+  RETURN QUERY
+    SELECT * FROM volvra._plan(v_tables, from_ts, to_ts, v_txids, v_actors,
+                               v_dbusers, predicate, true, true, p_replay => true);
 END
 $$;
 
@@ -3293,13 +3646,27 @@ BEGIN
     EXECUTE format('DROP PUBLICATION %I', v_pub);
   END IF;
 
-  EXECUTE format('CREATE PUBLICATION %I FOR TABLE %s',
+  -- publish_generated_columns exists from PostgreSQL 18 and is required here,
+  -- not merely useful.  REPLICA IDENTITY FULL, which this function sets so the
+  -- WAL carries before images, makes generated columns part of the replica
+  -- identity.  From 18 onwards PostgreSQL refuses to UPDATE a table whose
+  -- replica identity contains generated columns the publication does not
+  -- publish -- so without this option, covering a table with a generated
+  -- column and then running companion_setup() makes that table impossible to
+  -- update at all. That breaks the application, not just the archive.
+  --
+  -- It also makes the archive better on 18+: generated columns arrive with
+  -- their values instead of as nulls.
+  EXECUTE format('CREATE PUBLICATION %I FOR TABLE %s%s',
                  v_pub,
                  (SELECT string_agg(e.table_name, ', ' ORDER BY e.table_name)
                   FROM volvra.enabled_tables e
                   WHERE volvra._resolve(e.table_name) IS NOT NULL
                     AND split_part(e.table_name, '.', 1)
-                        IN (p_schema, quote_ident(p_schema))));
+                        IN (p_schema, quote_ident(p_schema))),
+                 CASE WHEN current_setting('server_version_num')::int >= 180000
+                      THEN ' WITH (publish_generated_columns = stored)'
+                      ELSE '' END);
 
   step := 'publication'; object := v_pub;
   detail := format('%s covered table(s)', v_n);
@@ -3875,6 +4242,8 @@ BEGIN
   EXECUTE 'REVOKE ALL ON FUNCTION '
           '  volvra.undo(regclass, timestamptz, timestamptz, boolean, integer, boolean, '
           '              bigint, text, text, text, regclass[]), '
+          '  volvra.replay(regclass, timestamptz, timestamptz, boolean, integer, boolean, '
+          '                bigint, text, text, text, regclass[]), '
           '  volvra.undo_txid(bigint, boolean, integer, boolean), '
           '  volvra.undo_to(text, regclass, boolean, integer, boolean, regclass[]), '
           '  volvra.mark(text, text, boolean), '
@@ -3911,6 +4280,8 @@ BEGIN
   EXECUTE 'GRANT EXECUTE ON FUNCTION '
           'volvra.undo(regclass, timestamptz, timestamptz, boolean, integer, boolean, '
           '            bigint, text, text, text, regclass[]), '
+          'volvra.replay(regclass, timestamptz, timestamptz, boolean, integer, boolean, '
+          '              bigint, text, text, text, regclass[]), '
           'volvra.undo_txid(bigint, boolean, integer, boolean), '
           'volvra.undo_to(text, regclass, boolean, integer, boolean, regclass[]), '
           'volvra.mark(text, text, boolean), '

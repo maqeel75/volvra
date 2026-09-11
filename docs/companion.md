@@ -37,6 +37,28 @@ Row triggers see the old row directly and never needed
 alone, and conflating the two makes the trigger tier sound harder to
 adopt than it is.
 
+### Generated columns on PostgreSQL 18 and later
+
+`REPLICA IDENTITY FULL` makes a generated column part of the replica
+identity. From PostgreSQL 18, the server refuses to update a table
+whose replica identity contains generated columns the publication does
+not publish, so a covered table with a generated column would become
+impossible to update at all once the companion was set up. That breaks
+the application, not only the archive.
+
+`volvra.companion_setup` therefore creates the publication with
+`publish_generated_columns = stored` on PostgreSQL 18 and later. The
+option does not exist before 18 and is not set there. A publication
+created by hand on 18 or later needs the same option:
+
+```sql
+CREATE PUBLICATION volvra_pub FOR TABLE orders
+  WITH (publish_generated_columns = stored);
+```
+
+The setting also improves the archive, because generated columns then
+arrive with their values rather than as nulls.
+
 ## Why pgoutput
 
 The companion decodes with `pgoutput`, the only logical decoding

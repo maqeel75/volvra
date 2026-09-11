@@ -130,6 +130,8 @@ The following table describes each command:
 | history | Show every version of one row. |
 | preview | Show the compensating SQL and change nothing. |
 | undo | Show the plan, ask once, then apply. |
+| preview-replay | Show what reapplying the selection would do. |
+| replay | Reapply the selection forward, after a restore. |
 | preflight | Report whether the install is shaped for production. |
 | maintain | Extend partitions, apply retention, and seal. |
 | seal | Make the history captured so far provable. |
@@ -215,6 +217,7 @@ prompt:
 
 ```bash
 volvra undo --txid 848291
+volvra replay --table orders --since '2026-09-08 14:00+00'   # after a restore
 ```
 
 Revert one customer's rows within the last hour:

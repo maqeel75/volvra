@@ -12,6 +12,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   time window, transaction, actor, database role, or SQL predicate.
 - Transaction-scoped undo, so a mistaken migration can be reverted
   across every table the migration touched.
+- Forward replay, the mirror of undo, which reapplies changes in their
+  original direction oldest first. A database restored from a backup
+  that predates changes still held in history can be carried forward
+  over them. Replay shares the conflict guard, the blast-radius cap,
+  the advisory locks and the single transaction with undo, and refuses
+  any row that no longer holds the image captured before its change.
 - Row history with two recorded identities, an application-declared
   actor and an authenticated database principal.
 - A conflict guard that refuses to overwrite a change made after the
@@ -26,6 +32,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Coverage that survives ALTER TABLE RENAME and SET SCHEMA, because a
   covered table is identified by its relation identifier rather than
   by name.
+- Publications created with `publish_generated_columns = stored` on
+  PostgreSQL 18 and later. Without it, a covered table with a
+  generated column becomes impossible to update once the companion is
+  set up, because `REPLICA IDENTITY FULL` puts generated columns in
+  the replica identity and PostgreSQL 18 refuses to update a table
+  whose replica identity contains unpublished generated columns.
+- Conflict guards that ignore generated columns. A guard compared a
+  derived value that logical replication does not send, so history
+  restored from an archive conflicted on every row of any table with a
+  generated column, for undo as well as replay.
 - An extension upgrade path. `extension/build.sh` emits an upgrade
   script for every version in `extension/upgrade-from.txt`, so
   `ALTER EXTENSION UPDATE` works from any released version.

@@ -53,6 +53,8 @@ MARKERS=(
   'ALL VOLVRA ACCEPTANCE CHECKS PASSED'
   'ALL VOLVRA SECURITY CHECKS PASSED'
   'ALL VOLVRA PHASE 1 CHECKS PASSED'
+  'ALL VOLVRA REPLAY CHECKS PASSED'
+  'ALL VOLVRA REPLAY EDGE CHECKS PASSED'
   'ALL VOLVRA PHASE 2 CHECKS PASSED'
   'ALL VOLVRA PHASE 3 CHECKS PASSED'
   'ALL VOLVRA PHASE 4 CHECKS PASSED'
@@ -177,6 +179,10 @@ for v in "${VERSIONS[@]}"; do
       q -f /volvra/test/security.sql
       echo "### phase 1 (correctness) ###"
       q -f /volvra/test/phase1.sql
+      echo "### replay (forward reapplication) ###"
+      q -f /volvra/test/replay.sql
+      echo "### replay edge cases ###"
+      q -f /volvra/test/replay-edge.sql
       echo "### phase 2 (scope) ###"
       q -f /volvra/test/phase2.sql
       echo "### phase 3 (scale) ###"
@@ -194,7 +200,7 @@ for v in "${VERSIONS[@]}"; do
     done
 
     if [[ $rc -eq 0 && ${#missing[@]} -eq 0 ]]; then
-      echo "  ✓ $ctx: install×2 + acceptance + security + phase1-4 + privileges"
+      echo "  ✓ $ctx: install×2 + acceptance + security + phase1-4 + replay + privileges"
     else
       echo "  ✗ $ctx: FAILED (rc=$rc)${missing[*]+, missing: ${missing[*]}}"
       grep -nE "^psql.*ERROR|^ERROR" "$log" | head -3 | sed 's/^/        /'

@@ -39,6 +39,9 @@ const usage = `volvra -- undo for Postgres
   volvra preview SELECTOR...          show the compensating SQL, change nothing
   volvra undo SELECTOR...             show it, ask once, then apply
 
+  volvra preview-replay SELECTOR...   show what reapplying would do
+  volvra replay SELECTOR...           reapply changes forward, after a restore
+
   volvra preflight                    is this install production-shaped?
   volvra maintain                     partitions + retention + seal, in one call
   volvra seal                         make the history so far provable
@@ -79,6 +82,7 @@ SCHEDULING
   volvra undo --to before-deploy                 # put it back how it was
   volvra undo --txid 848291                      # undo that migration
   volvra undo --table orders --since '10 min ago'
+  volvra replay --table orders --since '10 min ago'   # after a restore
   volvra preview --actor svc:pricing --since today
   volvra undo --table orders --since '1 hour ago' \
               --where "old_row->>'customer' = 'acme'"
@@ -189,6 +193,10 @@ haveCmd:
 		code, err = cmdPreview(ctx, db, kept)
 	case "undo":
 		code, err = cmdUndo(ctx, db, kept, yes)
+	case "preview-replay":
+		code, err = cmdPreviewReplay(ctx, db, kept)
+	case "replay":
+		code, err = cmdReplay(ctx, db, kept, yes)
 	case "preflight":
 		code, err = cmdPreflight(ctx, db, kept)
 	case "maintain":

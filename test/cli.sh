@@ -200,6 +200,45 @@ printf '=== C15. nothing to undo is not an error ===\n'
 "$V" undo --yes --txid 999999999 >/dev/null 2>&1 \
   && ok "empty selection exits cleanly" || bad "empty selection exits cleanly"
 
+printf '=== C15b. replay is the mirror of undo ===\n'
+# A table of its own: C14 redacted rows of cli_orders, and redacted history
+# cannot be replayed, so replaying anything touching it would fail for a
+# reason unrelated to what this section tests.
+psql -q -v ON_ERROR_STOP=1 <<'SQL'
+DROP TABLE IF EXISTS cli_replay;
+CREATE TABLE cli_replay (id int PRIMARY KEY, total numeric);
+SQL
+"$V" cover cli_replay >/dev/null 2>&1
+psql -q -v ON_ERROR_STOP=1 -c "INSERT INTO cli_replay VALUES (1,100),(2,250)" >/dev/null
+psql -q -v ON_ERROR_STOP=1 -c "UPDATE cli_replay SET total = 0" >/dev/null
+# Read the txid back from the history rather than from psql's output: a
+# heredoc's last line is the COMMIT status, not the value.
+RTX=$(q "SELECT txid FROM volvra.change_log
+          WHERE table_name = 'public.cli_replay' AND op = 'U'
+          ORDER BY id DESC LIMIT 1")
+[[ -n "$RTX" ]] && ok "captured the replay fixture txid $RTX" \
+                || bad "captured the replay fixture txid"
+# Undo it first, so the rows hold the image captured *before* the change and
+# the replay guard can match.
+"$V" undo --yes --txid "$RTX" >/dev/null 2>&1
+[[ "$(q "SELECT total FROM cli_replay WHERE id = 1")" == "100" ]] \
+  && ok "undo restored the row before the replay checks" \
+  || bad "undo restored the row before the replay checks"
+
+try "preview-replay" "$V" preview-replay --txid "$RTX"
+[[ "$(q "SELECT total FROM cli_replay WHERE id = 1")" == "100" ]] \
+  && ok "preview-replay changed nothing" || bad "preview-replay changed nothing"
+
+try "replay --yes" "$V" replay --yes --txid "$RTX"
+[[ "$(q "SELECT total FROM cli_replay WHERE id = 1")" == "0" ]] \
+  && ok "replay reapplied the change" || bad "replay reapplied the change"
+
+"$V" replay --yes --txid "$RTX" >/dev/null 2>&1 \
+  && bad "a second replay was allowed" \
+  || ok "a second replay of the same change is refused"
+[[ "$(q "SELECT total FROM cli_replay WHERE id = 1")" == "0" ]] \
+  && ok "and nothing was applied twice" || bad "and nothing was applied twice"
+
 printf '=== C16. exit codes a scheduler can act on ===\n'
 # 0 = worked, 1 = failed or declined, 2 = worked and the finding is bad.
 "$V" status >/dev/null 2>&1
