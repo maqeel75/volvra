@@ -60,6 +60,7 @@ SELECT volvra.set_capture_mode('sessions', NULL);
 
 Passing NULL removes the override, so the table follows the
 `capture_updates` setting again. See the
+[Performance](performance.md) document for the measured difference.
 
 ## Truncate behavior
 
@@ -93,6 +94,7 @@ SELECT volvra.set_retention('orders', '30 days');
 ```
 
 pgVolvra deletes nothing until `volvra.purge` runs. See the
+[Managing Retention](retention.md) document.
 
 ## Integrity settings
 
@@ -130,6 +132,7 @@ The following table describes the settings that the durable tier uses:
 
 The companion reads its own thresholds from command line flags rather
 than from these settings, so the two must agree. See the
+[Companion Reference](companion_reference.md) document.
 
 ## Recording the acting application
 

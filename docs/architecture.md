@@ -105,6 +105,7 @@ server-side extensions, which managed providers do not offer.
 The companion writes newline-delimited JSON in numbered segments,
 described by a manifest that chains the SHA-256 hash of each segment.
 The archive is readable without the companion and without PostgreSQL.
+See the [Companion Overview](companion.md) document.
 
 ## Next Steps
 

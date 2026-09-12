@@ -53,6 +53,7 @@ survives the database. Even so, the archive holds row changes rather
 than a database, so schema and everything outside covered tables are
 not in the archive.
 
+The [pgVolvra and Backups](backups.md) document works through what each
 one recovers, with an example.
 
 ## What does coverage cost?
@@ -64,6 +65,7 @@ trebles.
 
 An UPDATE that changes nothing costs almost nothing, because pgVolvra
 records nothing for it. Reads cost nothing at all. See the
+[Performance](performance.md) document for measured figures.
 
 ## Should I cover every table?
 
@@ -141,6 +143,7 @@ REPLICATION attribute granted before the durable tier can run.
 The other platforms have not yet been validated against a live
 instance, so treat those as the design target rather than as a tested
 claim. The
+[Managed Providers](managed_providers.md) document records what has
 been verified and how to verify the rest.
 
 The durable tier additionally needs `wal_level` set to `logical`,
@@ -180,9 +183,12 @@ resistant. Run `volvra.seal()` to make the history tamper evident, and
 
 Changes captured since the last seal are not covered by any seal, so
 seal on a schedule. See the
+[Verifying History Integrity](integrity.md) document.
 
 ## Still Have Questions?
 
 For more information, visit
+[docs.pgedge.com](https://docs.pgedge.com).
 
 To report an issue with the software, visit
+[the issues page](https://github.com/pgEdge/pgVolvra/issues).

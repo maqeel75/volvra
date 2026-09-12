@@ -15,6 +15,7 @@ psql "$DATABASE_URL" -f sql/volvra.sql
 
 The file is pure SQL wrapped in one transaction, so any client works
 and a failed install leaves nothing behind. See the
+[Installation](installation.md) document for other methods.
 
 ## Covering a table
 
@@ -120,6 +121,7 @@ SELECT * FROM volvra.maintain();
 ```
 
 Run the job hourly or daily. See the
+[Managing Retention](retention.md) document.
 
 ## Checking the install before production
 
@@ -132,6 +134,7 @@ SELECT severity, finding, detail FROM volvra.preflight();
 
 A superuser-owned install produces a critical finding, because the
 capture function runs with its owner's rights. See the
+[Installation](installation.md) document for the recommended owner.
 
 ## Next Steps
 

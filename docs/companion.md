@@ -19,6 +19,7 @@ Deploy the companion when the history must outlive the database. Most
 deployments use the trigger tier alone.
 
 The archive is not a physical backup, and the companion is not a
+substitute for one. The [pgVolvra and Backups](backups.md) document sets
 out what each recovers.
 
 ## Requirements
@@ -107,6 +108,7 @@ resumes from the last segment the archive holds, and streams
 continuously. Stop the companion with SIGINT or SIGTERM; the companion
 flushes and closes the current segment before exiting.
 
+See the [Companion Reference](companion_reference.md) document for
 every command and flag.
 
 ## The archive format

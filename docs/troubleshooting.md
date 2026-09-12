@@ -155,6 +155,7 @@ write briefly runs with its owner's rights. A superuser owner is a
 standing privilege escalation.
 
 Reinstall as a dedicated non-superuser owner. See the
+[Installation](installation.md) document.
 
 ## Storage and partition problems
 
@@ -306,5 +307,7 @@ volvra-companion verify --archive /srv/volvra-archive
 ## Still Have Questions?
 
 For more information, visit
+[docs.pgedge.com](https://docs.pgedge.com).
 
 To report an issue with the software, visit
+[the issues page](https://github.com/pgEdge/pgVolvra/issues).

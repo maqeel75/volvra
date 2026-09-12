@@ -16,6 +16,7 @@ is what managed providers withhold. pgVolvra is verified on
 Supabase and on Neon, where verification runs pass on the free plan,
 and is designed for Amazon RDS, Amazon Aurora, and Google Cloud SQL on
 the same basis. The
+[Managed Providers](managed_providers.md) document records what has
 been verified on which service, and how to verify the rest.
 
 pgVolvra includes the following features:
@@ -38,6 +39,7 @@ pgVolvra includes the following features:
 pgVolvra records changes from the moment you enable pgVolvra on a table.
 pgVolvra cannot recover a change made before that point, because no
 record of the change exists. Setup is therefore the whole job; see the
+[Getting Started](quick_start.md) document.
 
 ## Two tiers
 

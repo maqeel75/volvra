@@ -1,6 +1,8 @@
 # Release Notes
 
 All notable changes to pgVolvra are documented in this file. The format
+follows [Keep a Changelog](https://keepachangelog.com/), and pgVolvra
+uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 

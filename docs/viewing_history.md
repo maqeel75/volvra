@@ -108,6 +108,7 @@ FROM volvra.change_log
 WHERE redacted_at IS NOT NULL;
 ```
 
+See the [Erasing Data](erasure.md) document.
 
 ## Next Steps
 

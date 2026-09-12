@@ -120,6 +120,7 @@ privileges the design depends on being able to live without:
 
 The script needs only `psql`, installs pgVolvra into a throwaway
 database, and drops the schema afterwards unless given `--keep`. See
+the [Managed Providers](managed_providers.md) document for the
 per-service steps.
 
 ## Running the multi-node suite
@@ -340,3 +341,4 @@ We welcome your project contributions. Open an issue to discuss a
 change before starting substantial work.
 
 For more information, visit
+[docs.pgedge.com](https://docs.pgedge.com).

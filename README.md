@@ -1,5 +1,6 @@
 # pgVolvra
 
+[![test](https://github.com/pgEdge/pgVolvra/actions/workflows/test.yml/badge.svg)](https://github.com/pgEdge/pgVolvra/actions/workflows/test.yml)
 
 Row-level undo and history for PostgreSQL.
 
@@ -44,6 +45,7 @@ database server filesystem, which is what managed providers withhold.
 pgVolvra is verified on Supabase and on Neon, where verification runs
 pass on the free plan, and is designed for Amazon RDS, Amazon Aurora,
 and Google Cloud SQL on the same basis. See
+[Verifying a Managed Provider](docs/managed_providers.md) for what has
 been verified on which service.
 
 pgVolvra records changes from the moment you cover a table, and cannot
@@ -67,6 +69,7 @@ Install pgVolvra as a dedicated role that is not a superuser. The
 capture function is SECURITY DEFINER, so a superuser owner turns every
 write on a covered table into superuser-owned code. For details of
 every installation method, see
+[Installing pgVolvra](docs/installation.md).
 
 Self-hosted users who prefer `CREATE EXTENSION` can build optional
 packaging from the same SQL file; see the `extension` directory.
@@ -85,6 +88,7 @@ SELECT volvra.set_setting('strict_roles', 'on');
 ```
 
 For every setting, its default, and what the setting controls, see
+[Configuring pgVolvra](docs/configuration.md).
 
 ## Using pgVolvra
 
@@ -121,7 +125,9 @@ SELECT * FROM volvra.maintain();
 ```
 
 For the full range of ways to select what to revert, see
+[Undoing Changes](docs/undoing_changes.md). For the durable tier that
 archives change data to storage you own, see
+[Using the Durable Tier](docs/companion.md).
 
 ## Documentation
 
@@ -135,18 +141,23 @@ mkdocs serve
 ```
 
 The pins match the primary pgEdge documentation site. For details, see
+[docs/developers.md](docs/developers.md).
 
 For more information, visit
+[docs.pgedge.com](https://docs.pgedge.com).
 
 ## Support & Resources
 
 For more information, visit
+[docs.pgedge.com](https://docs.pgedge.com).
 
 To report an issue with the software, visit
+[the issues page](https://github.com/pgEdge/pgVolvra/issues).
 
 ## Contributing
 
 We welcome your project contributions; for more information, see
+[docs/developers.md](docs/developers.md).
 
 The `DECISIONS.md` file records the design and vocabulary decisions
 that have already been argued, including what each choice beat and why
@@ -155,3 +166,4 @@ the alternative lost.
 ## License
 
 This project is licensed under the
+[PostgreSQL License](LICENSE.md).

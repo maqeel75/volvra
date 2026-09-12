@@ -68,6 +68,7 @@ that changes the recorded attribution, operation, key, transaction
 identifier, or timestamp, or that substitutes different content
 instead of setting the images to null.
 
+See the [Verifying History Integrity](integrity.md) document for
 sealing, which turns resistance into evidence.
 
 ## Unforgeable capture

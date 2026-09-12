@@ -143,6 +143,7 @@ FROM volvra.retention_log ORDER BY id DESC;
 
 `volvra.verify` reads that ledger, so a span emptied by a recorded
 retention run reports as lawful rather than as tampering. See the
+[Verifying History Integrity](integrity.md) document.
 
 ## Next Steps
 

@@ -139,6 +139,7 @@ accounts, entitlements, and pricing. Leave high-volume append-only
 tables, such as event and telemetry tables, uncovered; those tables
 are where the cost is highest and the value of an undo is lowest.
 
+See the [Performance](performance.md) document for measured figures.
 
 ## Excluding columns from capture
 

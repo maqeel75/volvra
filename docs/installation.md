@@ -15,6 +15,7 @@ language, which ships enabled in every PostgreSQL installation, and
 built-in functions such as `sha256` and `jsonb_populate_record`.
 
 The durable tier has two additional requirements that the trigger tier
+does not; see the [Companion Overview](companion.md) document.
 
 ## Choosing an owner
 
@@ -188,6 +189,7 @@ SELECT sha256 FROM volvra.fingerprint() WHERE scope = 'all';
 
 The fingerprint is identical across PostgreSQL 14 through 19, so one
 published value covers every supported release. See the
+[Security](security.md) document for what this check does and does not
 prove.
 
 ## Scope of an install
@@ -207,6 +209,7 @@ DROP SCHEMA volvra CASCADE;
 
 Dropping the schema destroys the recorded history. Archive the history
 first if you need to keep it; see the
+[Companion Overview](companion.md) document.
 
 ## Next Steps
 
