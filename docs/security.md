@@ -1,7 +1,7 @@
 # Security
 
-This document describes the Volvra privilege model, the guarantees
-Volvra provides, and the guarantees Volvra does not provide. Volvra
+This document describes the pgVolvra privilege model, the guarantees
+pgVolvra provides, and the guarantees pgVolvra does not provide. pgVolvra
 can modify production data, so the design assumes hostile scrutiny.
 
 Reading history is open to anyone who may already read the underlying
@@ -10,7 +10,7 @@ role, capped, and audited.
 
 ## Roles
 
-Volvra creates three roles at install, each inheriting from the one
+pgVolvra creates three roles at install, each inheriting from the one
 before. The following table describes each role:
 
 | Role | May |
@@ -19,10 +19,10 @@ before. The following table describes each role:
 | volvra_operator | Apply an undo, subject to holding write privileges on the target table. |
 | volvra_admin | Cover and uncover tables, configure settings, run retention, seal, and erase. |
 
-Volvra grants `volvra_admin` to the installing role, so a
+pgVolvra grants `volvra_admin` to the installing role, so a
 non-superuser owner is not locked out of the install.
 
-If the installing role lacks CREATEROLE, Volvra skips role creation
+If the installing role lacks CREATEROLE, pgVolvra skips role creation
 with a warning and privilege checks degrade to permissive. Set
 `strict_roles` to `on` to make a missing role a hard error instead.
 
@@ -34,19 +34,19 @@ sufficient; the caller also needs INSERT, UPDATE, or DELETE on the
 target table.
 
 A SECURITY DEFINER undo owned by a powerful role would be a privilege
-escalation primitive on production data, which is why Volvra does not
+escalation primitive on production data, which is why pgVolvra does not
 provide one.
 
 ## Containment
 
-Volvra limits what a single undo can do. The following list describes
+pgVolvra limits what a single undo can do. The following list describes
 each limit:
 
 - Previewing is the default, so `volvra.undo` without
   `confirm => true` returns the plan and changes nothing.
 - An undo affecting more rows than `max_undo_rows` raises
   `program_limit_exceeded`, and any override is recorded.
-- An undo refuses when a row has changed since Volvra captured the
+- An undo refuses when a row has changed since pgVolvra captured the
   row, and offers no option to overwrite that row.
 - An undo with no selector at all is refused, so planning across every
   covered table by accident is not possible.
@@ -55,7 +55,7 @@ each limit:
 
 ## Integrity of the history
 
-Volvra blocks writes to the history. UPDATE, DELETE, and TRUNCATE on
+pgVolvra blocks writes to the history. UPDATE, DELETE, and TRUNCATE on
 `volvra.change_log` raise `insufficient_privilege` through a guard
 trigger, and the guard applies to the table owner as well.
 
@@ -68,7 +68,6 @@ that changes the recorded attribution, operation, key, transaction
 identifier, or timestamp, or that substitutes different content
 instead of setting the images to null.
 
-See the [Verifying History Integrity](integrity.md) document for
 sealing, which turns resistance into evidence.
 
 ## Unforgeable capture
@@ -83,14 +82,14 @@ The function also refuses any table `volvra.enable` did not cover, so
 a privileged trigger cannot be pointed at a decoy table to forge
 history or fill the log.
 
-Install Volvra as a dedicated non-superuser owner. Every SECURITY
+Install pgVolvra as a dedicated non-superuser owner. Every SECURITY
 DEFINER function runs with its owner's rights, and
 `volvra.preflight()` grades a superuser-owned install as critical.
 
 ## Confidentiality of the history
 
 The history holds complete row images, so reading history must never
-be a way around a table's own grants. Volvra enforces that twice.
+be a way around a table's own grants. pgVolvra enforces that twice.
 
 Row-level security on `volvra.change_log` permits a reader to see a
 history row only if the reader may SELECT the table the row came from.
@@ -104,7 +103,7 @@ reveal the existence of a table the caller may not read.
 
 ## Attribution
 
-Volvra records two identities, deliberately. The following table
+pgVolvra records two identities, deliberately. The following table
 compares them:
 
 | Column | Source | Trust |
@@ -114,7 +113,7 @@ compares them:
 
 Neither `session_user` nor `current_user` alone is correct.
 `session_user` misses `SET ROLE`, and `current_user` becomes the
-function owner inside the SECURITY DEFINER capture function. Volvra
+function owner inside the SECURITY DEFINER capture function. pgVolvra
 reads the `role` setting, which survives the SECURITY DEFINER boundary
 and can only ever name a role the caller genuinely holds.
 
@@ -125,18 +124,18 @@ to another client's work. The `db_user` column is unaffected.
 
 ## Injection resistance
 
-Volvra generates compensating SQL from catalog metadata and row
+pgVolvra generates compensating SQL from catalog metadata and row
 images. Identifiers come from the catalog and are quoted; row images
 are embedded as quoted literals.
 
 The predicate argument is a WHERE fragment rather than a statement.
-Volvra parenthesizes the fragment, refuses any predicate containing a
+pgVolvra parenthesizes the fragment, refuses any predicate containing a
 semicolon, a double hyphen, or a slash-star comment opener, and runs
 the fragment with the caller's own privileges.
 
 ## Auditing
 
-Volvra records every undo attempt, previewed or applied, in
+pgVolvra records every undo attempt, previewed or applied, in
 `volvra.undo_log`. A trigger stamps the identity rather than trusting
 the value supplied by the insert, and the table is append-only.
 
@@ -146,7 +145,7 @@ removal is distinguishable from tampering.
 
 ## Verifying the software
 
-Volvra installs as a file rather than a signed package, so
+pgVolvra installs as a file rather than a signed package, so
 establishing provenance is the installer's responsibility. Verify the
 checksum before running the file, read the file, and verify the
 installed code afterwards with `volvra.fingerprint()`.
@@ -155,13 +154,13 @@ No signing key is published yet. Until one is, the checksum protects
 against corruption and a careless mirror rather than against an
 attacker who can replace both the file and the checksum.
 
-## What Volvra does not protect against
+## What pgVolvra does not protect against
 
 The limits are worth stating plainly:
 
 - A superuser, or an owner who disables the trigger, can stop capture
   and orphan the history. Monitor `volvra.health()`.
-- Volvra records changes from the moment you cover a table, so nothing
+- pgVolvra records changes from the moment you cover a table, so nothing
   before that point can be recovered.
 - The trigger tier shares fate with the database. Deploy the companion
   when the history must survive the database.

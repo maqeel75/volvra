@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra phase 1 -- correctness
+-- pgVolvra phase 1 -- correctness
 --
 -- Gate: an undo restores exactly what was lost, or refuses and says why.
 -- It never silently destroys something it did not capture.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra on a multi-master cluster.
+# pgVolvra on a multi-master cluster.
 #
 # Builds a real two-node Spock cluster from the pgEdge image and asks
 # the only question that matters there: does a node hold history of

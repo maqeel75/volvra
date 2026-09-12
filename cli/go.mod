@@ -1,4 +1,4 @@
-module github.com/pgedge/volvra/cli
+module github.com/pgedge/pgVolvra/cli
 
 go 1.25.0
 

@@ -2,7 +2,7 @@
 # Emit the integrity values that belong in a release, and the command a user
 # runs to check them.
 #
-# Volvra installs as a SQL file, so provenance is the user's to verify -- there
+# pgVolvra installs as a SQL file, so provenance is the user's to verify -- there
 # is no package manager doing it for them.  Publishing these makes that
 # possible; publishing nothing makes "just run this SQL" a request for trust.
 set -euo pipefail

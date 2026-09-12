@@ -1,6 +1,6 @@
 # License
 
-Volvra is licensed under the PostgreSQL License, a liberal open source
+pgVolvra is licensed under the PostgreSQL License, a liberal open source
 license similar to the BSD or MIT licenses.
 
 PostgreSQL License

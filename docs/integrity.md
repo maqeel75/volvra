@@ -1,11 +1,11 @@
 # Verifying History Integrity
 
-This document explains how Volvra proves that the recorded history has
+This document explains how pgVolvra proves that the recorded history has
 not been altered, and what that proof does and does not cover.
 
 ## Resistance and evidence
 
-Volvra blocks writes to the history. UPDATE, DELETE, and TRUNCATE on
+pgVolvra blocks writes to the history. UPDATE, DELETE, and TRUNCATE on
 `volvra.change_log` raise `insufficient_privilege` through a guard
 trigger, and the guard applies to the table owner as well.
 
@@ -16,7 +16,7 @@ what sealing provides.
 ## Why sealing covers ranges
 
 Chaining every row would mean serializing every writer on the tail of
-the log, which would remove the throughput Volvra is careful to
+the log, which would remove the throughput pgVolvra is careful to
 preserve. Sealing therefore covers ranges of the log, off the write
 path entirely.
 
@@ -81,7 +81,7 @@ Retention and erasure both remove history legitimately, and both
 record what they removed. `volvra.verify` reads those ledgers and
 reports an explained difference separately from tampering.
 
-Volvra only accepts a ledger entry recorded after the seal in
+pgVolvra only accepts a ledger entry recorded after the seal in
 question. An entry from before the seal was already reflected in the
 content that was sealed, so the entry cannot account for a later
 change.
@@ -104,7 +104,7 @@ PostgreSQL 14 through 19, so one published value covers every
 supported release.
 
 The check catches what no signature and no package manager can see: a
-function altered after install. Replacing any Volvra function changes
+function altered after install. Replacing any pgVolvra function changes
 the hash, and so does adding a function to the schema. New monthly
 partitions deliberately do not change the hash, because a value that
 drifted on its own every month would be ignored.
@@ -117,9 +117,9 @@ the routine rather than something to remember.
 The guarantees have limits worth stating plainly:
 
 - A superuser can disable the guard trigger, alter the history, and
-  re-seal. Install Volvra as a dedicated non-superuser owner.
+  re-seal. Install pgVolvra as a dedicated non-superuser owner.
 - A seal over no rows verifies clean, so a seal does not prove that
-  capture was running. That is why Volvra grades a registered table
+  capture was running. That is why pgVolvra grades a registered table
   that is not capturing as critical.
 - The published fingerprint is only as trustworthy as the place you
   read it. The check moves trust from the file to the release notes.

@@ -1,13 +1,13 @@
 # Verifying a Managed Provider
 
-This document describes how to verify Volvra on a managed PostgreSQL
-service, and records what each provider requires. Volvra's design
-exists for these services, so a claim that Volvra runs on one is worth
+This document describes how to verify pgVolvra on a managed PostgreSQL
+service, and records what each provider requires. pgVolvra's design
+exists for these services, so a claim that pgVolvra runs on one is worth
 only as much as the verification behind it.
 
 ## Why this verification matters
 
-Volvra installs as plain SQL, needs no superuser, and touches no server
+pgVolvra installs as plain SQL, needs no superuser, and touches no server
 filesystem, specifically so that it works where extensions cannot be
 installed. Every constraint in the engine follows from that goal.
 
@@ -33,7 +33,7 @@ export PGPASSWORD
 ./test/provider.sh --dsn "postgres://master@cluster.rds.amazonaws.com:5432/probe"
 ```
 
-Point the script at a throwaway database. The script installs Volvra
+Point the script at a throwaway database. The script installs pgVolvra
 and drops the `volvra` schema when it finishes, which destroys history;
 pass `--keep` to leave the installation in place. The script refuses to
 run against a database whose `volvra.change_log` already holds rows.
@@ -43,8 +43,8 @@ The script checks the following, in the order that matters:
 - the installing role is not a superuser, which is the property under
   test.
 - the role holds CREATE on the database and CREATEROLE, and the three
-  cluster-wide Volvra roles can be created.
-- Volvra installs, and installs a second time as a no-op.
+  cluster-wide pgVolvra roles can be created.
+- pgVolvra installs, and installs a second time as a no-op.
 - the features providers most often restrict work: range partitioning,
   row-level security with a policy, and a statement-level TRUNCATE
   trigger.
@@ -61,7 +61,7 @@ superuser.
 ## Amazon Aurora PostgreSQL
 
 Aurora gives the master user the `rds_superuser` role, which is not a
-PostgreSQL superuser. That is the configuration Volvra is designed
+PostgreSQL superuser. That is the configuration pgVolvra is designed
 for, and it is why `volvra.preflight` should report no critical
 findings on Aurora: the critical findings concern a superuser-owned
 install, which Aurora cannot produce.
@@ -131,7 +131,7 @@ Supabase is the cheapest verification to run, and it tests the same
 property Aurora does. The free plan needs no infrastructure, and the
 `postgres` role it gives you is not a superuser: `supabase_admin` is
 the only superuser on the instance, and the `postgres` role cannot
-escalate to it. That is the configuration Volvra is designed for.
+escalate to it. That is the configuration pgVolvra is designed for.
 
 Verify Supabase with the following steps.
 
@@ -139,7 +139,7 @@ Verify Supabase with the following steps.
     shown at creation; it is not shown again.
 
 2. Take the connection string from the project's connection settings,
-    and choose the **direct connection**, not a pooled one. Volvra
+    and choose the **direct connection**, not a pooled one. pgVolvra
     records an application-declared actor through a session setting,
     and a transaction-mode pooler hands the session to another client
     between transactions. The
@@ -173,7 +173,7 @@ network failure rather than a paused project.
 Neon, like Supabase, needs no infrastructure and has a free plan. The
 default role `neondb_owner` holds membership in `neon_superuser`,
 which carries CREATEDB, CREATEROLE, BYPASSRLS, and REPLICATION, but is
-not a PostgreSQL superuser. That is the configuration Volvra is
+not a PostgreSQL superuser. That is the configuration pgVolvra is
 designed for.
 
 Two things about Neon are worth knowing before starting.
@@ -208,7 +208,7 @@ Verify Neon with the following steps.
 
     Use the **direct** endpoint, not the pooled one. Neon's dashboard
     offers a pooler host by default, and its pooler runs in
-    transaction mode, which breaks the session setting Volvra reads
+    transaction mode, which breaks the session setting pgVolvra reads
     the actor from and cannot create a replication slot. The direct
     host is the same name with `-pooler` removed.
 
@@ -228,8 +228,8 @@ Verify Neon with the following steps.
     ```
 
 Roles created from SQL on Neon, which is how `test/provider.sh`
-creates the three Volvra roles, do not inherit `neon_superuser`. They
-are ordinary roles, which is what Volvra wants them to be.
+creates the three pgVolvra roles, do not inherit `neon_superuser`. They
+are ordinary roles, which is what pgVolvra wants them to be.
 
 One difference from other providers is worth recording rather than
 hiding: `neondb_owner` holds BYPASSRLS, so the row-level security
@@ -246,9 +246,9 @@ role rather than an administrative one, and the difference is worth
 understanding before installing.
 
 The `app` role a database is created with holds CREATE on the database
-but not CREATEROLE. Volvra installs and works with it: capture, undo,
+but not CREATEROLE. pgVolvra installs and works with it: capture, undo,
 TRUNCATE capture, maintenance, sealing, and verification all pass. What
-fails is the creation of the three cluster-wide Volvra roles, and
+fails is the creation of the three cluster-wide pgVolvra roles, and
 `volvra.preflight` reports their absence as critical, because without
 them every privilege check degrades to permissive.
 
@@ -277,7 +277,7 @@ ALTER ROLE admin REPLICATION;
 PostgreSQL does not fire an ordinary `AFTER` trigger for rows applied
 by replication, so on a multi-master cluster each node would record
 only what was written to it. The `capture_replicated` setting decides
-whether Volvra records its peers' changes as well.
+whether pgVolvra records its peers' changes as well.
 
 Turn it on where history must be complete on every node:
 
@@ -318,7 +318,7 @@ naming the table rather than a failed operation; run
 
 ### The history itself must never replicate
 
-`volvra.preflight` reports a critical finding if any Volvra table is in
+`volvra.preflight` reports a critical finding if any pgVolvra table is in
 a publication or replication set. Two nodes would write the same
 `change_log` identifiers, and every captured change would be applied
 twice. This is easy to do by accident with a replication set that adds
@@ -362,7 +362,7 @@ reasoned expectation rather than a tested fact.
 
 The Neon run passed all 22 trigger-tier checks on PostgreSQL 18.6,
 against `neondb_owner`, on the free plan. Roles created from SQL on
-Neon do not inherit `neon_superuser`, and the three Volvra roles
+Neon do not inherit `neon_superuser`, and the three pgVolvra roles
 worked correctly as ordinary roles.
 
 The durable tier was then verified end to end on Neon, after enabling
@@ -403,7 +403,7 @@ The Supabase run passed all 24 checks with nothing skipped, on the
 free plan, against the `postgres` role that Supabase provides. Two
 results there were not predictable in advance and are the reason the
 verification exists: that role holds CREATEROLE, so the three
-cluster-wide Volvra roles can be created; and it may create its own
+cluster-wide pgVolvra roles can be created; and it may create its own
 `pgoutput` replication slot, so the durable tier works without a
 paid plan or a parameter change. Supabase runs `wal_level` as
 `logical` already, for its own realtime feature.

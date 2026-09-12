@@ -1,25 +1,24 @@
-# Volvra
+# pgVolvra
 
-Volvra is row-level undo and history for PostgreSQL. Volvra reverts the
+pgVolvra is row-level undo and history for PostgreSQL. pgVolvra reverts the
 exact rows changed by a mistaken UPDATE, DELETE, or migration, rather
 than rolling an entire cluster back to a point in time.
 
 PostgreSQL has no equivalent of Oracle Flashback. Recovering from a
 mistaken statement normally means restoring a backup or performing
 point-in-time recovery, which discards every other change made since.
-Volvra reverts only the rows the mistake touched, and leaves unrelated
+pgVolvra reverts only the rows the mistake touched, and leaves unrelated
 work in place.
 
-Volvra installs as plain SQL. Volvra requires no compiled extension,
+pgVolvra installs as plain SQL. pgVolvra requires no compiled extension,
 no superuser, and no access to the database server filesystem, which
-is what managed providers withhold. Volvra is verified on
+is what managed providers withhold. pgVolvra is verified on
 Supabase and on Neon, where verification runs pass on the free plan,
 and is designed for Amazon RDS, Amazon Aurora, and Google Cloud SQL on
 the same basis. The
-[Managed Providers](managed_providers.md) document records what has
 been verified on which service, and how to verify the rest.
 
-Volvra includes the following features:
+pgVolvra includes the following features:
 
 - reverting an UPDATE, DELETE, or INSERT on specific rows.
 - reverting an entire transaction, such as a mistaken migration,
@@ -36,14 +35,13 @@ Volvra includes the following features:
 
 ## An important constraint
 
-Volvra records changes from the moment you enable Volvra on a table.
-Volvra cannot recover a change made before that point, because no
+pgVolvra records changes from the moment you enable pgVolvra on a table.
+pgVolvra cannot recover a change made before that point, because no
 record of the change exists. Setup is therefore the whole job; see the
-[Getting Started](quick_start.md) document.
 
 ## Two tiers
 
-Volvra has two capture tiers that solve different problems. The
+pgVolvra has two capture tiers that solve different problems. The
 following table compares the two tiers:
 
 | Property | Trigger tier | Companion |
@@ -63,19 +61,19 @@ when the history must outlive the database.
 
 ## Requirements
 
-Volvra requires PostgreSQL 14 or later. Volvra requires no PostgreSQL
-extensions; the `plpgsql` language that Volvra uses ships enabled in
+pgVolvra requires PostgreSQL 14 or later. pgVolvra requires no PostgreSQL
+extensions; the `plpgsql` language that pgVolvra uses ships enabled in
 every PostgreSQL installation.
 
-Volvra is tested against PostgreSQL 14, 15, 16, 17, 18, and 19.
+pgVolvra is tested against PostgreSQL 14, 15, 16, 17, 18, and 19.
 
 ## Next Steps
 
 - The [Getting Started](quick_start.md) document walks through
-  installing Volvra and reverting a mistake.
-- The [Architecture](architecture.md) document explains how Volvra
+  installing pgVolvra and reverting a mistake.
+- The [Architecture](architecture.md) document explains how pgVolvra
   captures and reverts changes.
 - The [Installation](installation.md) document describes every
   supported installation method.
 - The [Security](security.md) document describes the privilege model
-  and the guarantees Volvra does and does not provide.
+  and the guarantees pgVolvra does and does not provide.

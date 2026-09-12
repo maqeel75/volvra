@@ -1,6 +1,6 @@
 # Erasing Data
 
-This document describes how Volvra answers a deletion request for one
+This document describes how pgVolvra answers a deletion request for one
 person, and how to keep data out of the history in the first place.
 Retention cannot answer either question.
 
@@ -10,12 +10,12 @@ Retention answers "forget everything older than a horizon". A subject
 access or deletion request names a person, which is a different
 question that a time-based policy cannot express.
 
-Volvra therefore provides a separate operation that finds every
+pgVolvra therefore provides a separate operation that finds every
 recorded change for one subject and removes the content.
 
 ## Erasing one subject's history
 
-`volvra.forget` removes the row images Volvra recorded for a subject:
+`volvra.forget` removes the row images pgVolvra recorded for a subject:
 
 ```sql
 SELECT mode, rows_erased, from_id, to_id
@@ -24,7 +24,7 @@ FROM volvra.forget('people', '{"id":1}', reason => 'GDPR art.17');
 
 Redaction is the default. The change record stays and the content
 goes, which keeps the fact that a change happened while removing the
-personal data. Volvra stamps `redacted_at` and `redacted_by` on each
+personal data. pgVolvra stamps `redacted_at` and `redacted_by` on each
 affected row.
 
 Erasing an unknown subject reports zero rows rather than raising, so
@@ -52,7 +52,7 @@ compares the two modes:
 
 ## Erasure is auditable
 
-Volvra records every erasure request in `volvra.erasure_log`, before
+pgVolvra records every erasure request in `volvra.erasure_log`, before
 making the change:
 
 ```sql
@@ -66,7 +66,7 @@ from tampering. Re-seal after an erasure to restore provable coverage.
 
 ## Erasure cannot rewrite history
 
-The path that erasure uses is deliberately narrow. Volvra permits an
+The path that erasure uses is deliberately narrow. pgVolvra permits an
 update to the history only when the update removes content, and
 rejects any update that:
 
@@ -93,13 +93,13 @@ to excluded columns records nothing at all, so not even the fact of
 the change is stored.
 
 The cost is stated when you make the change rather than discovered
-later. Volvra cannot restore a column Volvra never captured, and if
+later. pgVolvra cannot restore a column pgVolvra never captured, and if
 the column is NOT NULL with no default then undoing a DELETE on that
-table becomes impossible. Volvra warns at that moment, and a later
+table becomes impossible. pgVolvra warns at that moment, and a later
 undo refuses with `datatype_mismatch` rather than inserting a row with
 a wrong value.
 
-Volvra refuses to exclude a primary key column. Use hard erasure when
+pgVolvra refuses to exclude a primary key column. Use hard erasure when
 the key itself is the problem.
 
 ## Choosing between exclusion and erasure

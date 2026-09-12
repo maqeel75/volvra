@@ -8,7 +8,7 @@ lost**, because that last part is what saves the argument next time.
 
 ---
 
-## Volvra is not a PostgreSQL extension
+## pgVolvra is not a PostgreSQL extension
 
 *How it installs.*
 
@@ -61,12 +61,18 @@ path is the supported one:
 **Decided 2026-09-08.** Every reference stays `pgEdge`: the copyright
 in `LICENSE.md` and `docs/LICENSE.md`, the `repo_url` and copyright in
 `mkdocs.yml`, the CI badge and issue links in `README.md` and the docs,
-and the Go module path `github.com/pgedge/volvra/companion`.
+and the Go module paths under `github.com/pgedge/`.
 
-The repository currently sits at `github.com/maqeel75/volvra` and is
+The repository currently sits at `github.com/maqeel75/pgVolvra` and is
 intended to move to the pgEdge organisation. Rewriting the references
 to a personal account and back again would churn the history and the
 Go module path for no gain.
+
+**Amended 2026-09-12.** The repository is named `pgVolvra`, matching
+the product name, and the Go module paths follow it:
+`github.com/pgedge/pgVolvra/cli` and `.../companion`. A module path
+must match the repository that serves it, so this one is not a free
+choice the way the schema name was.
 
 The known cost until the transfer: the CI badge does not render and the
 issue links resolve to the wrong place. That is accepted deliberately.
@@ -206,22 +212,47 @@ choice. The parts remain callable individually for anyone who wants them.
 
 ---
 
-## The product name is Volvra
+## The product name is pgVolvra; the schema is `volvra`
 
-*What the thing is called.*
+*What the thing is called, and what you type.*
 
-**Decided 2026-09-07.** Volvra is the name, not a working title.
+**Decided 2026-09-07, prefixed 2026-09-12.** The brand is **pgVolvra**.
+Every identifier stays `volvra`: the schema, `volvra.undo()`,
+`volvra.replay()`, the three roles, the CLI binary, the Go module paths
+and `sql/volvra.sql`.
 
 `Torna` ("it returns", Italian) was the alternative and the better real
 word. Volvra won on being ownable: an invented word is clearable and
 searchable in a way a common Italian verb form is not, and the whole
 point of picking a name early is to stop renaming things.
 
+The `pg` prefix was added later, and deliberately does not reach the
+API. `pg` marks membership of the PostgreSQL ecosystem rather than
+extension-hood -- pgBouncer, pgAdmin and pgBackRest are none of them
+extensions -- so it does not contradict this product not being one.
+**pgvector is the precedent**: the project is `pgvector`, the type and
+functions are `vector`, and nobody is confused. Users type the API
+name; the brand is what they search for and cite.
+
+An org-prefixed form such as `pgedge-volvra` was considered and
+rejected. pgEdge's own naming splits two ways: standalone components
+carry bare names (Spock, LOLOR, ACE, Snowflake), while the pgEdge
+prefix goes on category products (pgEdge Vectorizer, pgEdge
+Anonymizer). More decisively, this product's whole claim is that it
+runs on RDS, Aurora, Cloud SQL, Supabase and Neon, and an org-prefixed
+name tells a Supabase or Neon user it is somebody else's platform
+tooling. That is the audience the design constraints exist to reach.
+
+Capitalisation is **pgVolvra**, matching pgBouncer and pgAdmin rather
+than lowercase pgvector.
+
 Trademark and registry clearance is still outstanding: domains, USPTO
-classes 9 and 42, and GitHub, npm and PyPI. The name is settled as the
-working decision, so build under it; clearance may still force a
-change before any public release, and until it completes every public
-use of the name carries that risk.
+classes 9 and 42, and GitHub, npm and PyPI. A search on 2026-09-11
+found no software collision for either form, but `volvra.in` is an
+active consumer-products brand in a different class. The prefixed form
+is the better one to file, being a more distinctive composite mark.
+Clearance may still force a change before any public release, and
+until it completes every public use of the name carries that risk.
 
 Reopening this needs a clearance result, not a preference.
 
@@ -229,7 +260,7 @@ Reopening this needs a clearance result, not a preference.
 
 *How the software is licensed.*
 
-**Decided 2026-09-07.** Volvra is licensed under the PostgreSQL
+**Decided 2026-09-07.** pgVolvra is licensed under the PostgreSQL
 License, matching Spock and the rest of the pgEdge portfolio.
 
 The licence text is in `LICENSE.md` at the repository root and in
@@ -237,7 +268,7 @@ The licence text is in `LICENSE.md` at the repository root and in
 docs directory. Both copies must stay identical.
 
 The choice was between the PostgreSQL License and holding the code
-closed. A liberal open source licence was chosen because Volvra's
+closed. A liberal open source licence was chosen because pgVolvra's
 value is in being installable anywhere, including on managed providers
 where nothing can be compiled, and a restrictive licence would work
 against exactly the reach the design buys.

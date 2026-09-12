@@ -16,7 +16,7 @@ therefore cannot silently rewrite production data.
 
 ## Supported platforms
 
-Volvra ships two binaries per component, one for each architecture, and
+pgVolvra ships two binaries per component, one for each architecture, and
 each binary is statically linked with no libc dependency. One binary
 therefore covers every distribution below. The following table
 describes the supported platforms:

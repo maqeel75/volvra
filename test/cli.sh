@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra CLI test -- runs inside the container against the real database.
+# pgVolvra CLI test -- runs inside the container against the real database.
 # Every command is exercised, and the destructive one is checked twice:
 # once that it refuses without confirmation, once that it works with it.
 #

@@ -1,4 +1,4 @@
-site_name: Volvra
+site_name: pgVolvra
 site_description: Row-level undo and history for PostgreSQL
 
 extra_css:
@@ -53,20 +53,20 @@ extra:
     generator: false
 
 copyright: Copyright &copy; 2026 pgEdge, Inc
-repo_url: https://github.com/pgEdge/volvra
+repo_url: https://github.com/pgEdge/pgVolvra
 
 nav:
   - Overview: index.md
   - Architecture: architecture.md
   - Getting Started: quick_start.md
   - Examples: examples.md
-  - Installing Volvra:
+  - Installing pgVolvra:
       - Installation: installation.md
       - Managed Providers: managed_providers.md
-      - Configuring Volvra: configuration.md
-      - Upgrading Volvra: upgrading.md
-  - Volvra and Backups: backups.md
-  - Using Volvra:
+      - Configuring pgVolvra: configuration.md
+      - Upgrading pgVolvra: upgrading.md
+  - pgVolvra and Backups: backups.md
+  - Using pgVolvra:
       - Covering Tables: covering_tables.md
       - Undoing Changes: undoing_changes.md
       - Viewing History: viewing_history.md

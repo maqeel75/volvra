@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra scale suite (TESTPLAN priority 7).
+# pgVolvra scale suite (TESTPLAN priority 7).
 #
 # Every other suite runs on thousands of rows, so the limits volvra
 # advertises -- the blast-radius cap, seal_max_rows,

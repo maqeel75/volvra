@@ -1,8 +1,8 @@
 # Architecture
 
-This document explains how Volvra records changes and how Volvra
+This document explains how pgVolvra records changes and how pgVolvra
 reverts them. Understanding the capture path helps you predict what
-Volvra costs and what Volvra can recover.
+pgVolvra costs and what pgVolvra can recover.
 
 ## Capturing changes
 
@@ -12,7 +12,7 @@ statement-level BEFORE trigger handles TRUNCATE, which row triggers
 never see.
 
 Each captured change becomes one row in `volvra.change_log`. The
-following table describes what Volvra stores for each operation:
+following table describes what pgVolvra stores for each operation:
 
 | Operation | Stored |
 |---|---|
@@ -21,23 +21,23 @@ following table describes what Volvra stores for each operation:
 | DELETE | The complete old row image. |
 | TRUNCATE | One delete image per row, in capture mode. |
 
-Volvra stores row images as `jsonb`. An UPDATE stores only the columns
+pgVolvra stores row images as `jsonb`. An UPDATE stores only the columns
 whose values differ, because the primary key travels in its own column
 and nothing else is needed to find the row again. An UPDATE that
 changed nothing records nothing at all.
 
-Nothing leaves the database. Volvra adds one insert into a local
-append-only table inside the transaction that made the change. Volvra
+Nothing leaves the database. pgVolvra adds one insert into a local
+append-only table inside the transaction that made the change. pgVolvra
 does not duplicate statements, open additional connections, or write
 outside the database.
 
 ## Reverting changes
 
-An undo is a plan, and the plan is ordinary SQL. Volvra selects the
+An undo is a plan, and the plan is ordinary SQL. pgVolvra selects the
 captured changes you asked for, walks them in reverse chronological
 order, and generates a compensating statement for each one.
 
-The following table describes the compensating statement Volvra
+The following table describes the compensating statement pgVolvra
 generates for each captured operation:
 
 | Captured operation | Compensating statement |
@@ -46,31 +46,31 @@ generates for each captured operation:
 | DELETE | INSERT the stored old row image. |
 | UPDATE | UPDATE the captured columns back to their old values. |
 
-Volvra applies the plan inside the caller's transaction, so the whole
+pgVolvra applies the plan inside the caller's transaction, so the whole
 undo commits or none of it does. An undo makes ordinary changes to
-covered tables, so Volvra captures the undo as well; an undo can
+covered tables, so pgVolvra captures the undo as well; an undo can
 therefore be undone.
 
 ## The conflict guard
 
 Every compensating statement carries a guard that matches only if the
-live row still holds the values Volvra captured. If someone changed
-the row after the mistake, the statement affects no rows and Volvra
+live row still holds the values pgVolvra captured. If someone changed
+the row after the mistake, the statement affects no rows and pgVolvra
 refuses the entire undo.
 
 The guard tests only the columns the undo is about to write. If a
-mistake set `total` to zero and someone later edited `note`, Volvra
+mistake set `total` to zero and someone later edited `note`, pgVolvra
 still reverts `total`, because reverting `total` cannot destroy an
 edit to `note`. A later change to `total` itself does conflict.
 
-Volvra offers two outcomes for a conflict: refusing the undo, which is
+pgVolvra offers two outcomes for a conflict: refusing the undo, which is
 the default, and skipping the conflicting rows while reverting the
-rest. Volvra deliberately offers no option to overwrite a row that has
+rest. pgVolvra deliberately offers no option to overwrite a row that has
 moved on.
 
 ## Storage layout
 
-Volvra creates one schema, named `volvra`, containing the history and
+pgVolvra creates one schema, named `volvra`, containing the history and
 its supporting objects. The following table describes the principal
 tables:
 
@@ -105,7 +105,6 @@ server-side extensions, which managed providers do not offer.
 The companion writes newline-delimited JSON in numbered segments,
 described by a manifest that chains the SHA-256 hash of each segment.
 The archive is readable without the companion and without PostgreSQL.
-See the [Companion Overview](companion.md) document.
 
 ## Next Steps
 

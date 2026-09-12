@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra v0 acceptance test  (steps 1-6 of HANDOFF.md)
+-- pgVolvra v0 acceptance test  (steps 1-6 of HANDOFF.md)
 -- Any failed assertion raises -> psql exits non-zero under ON_ERROR_STOP.
 -- =====================================================================
 \set ON_ERROR_STOP on

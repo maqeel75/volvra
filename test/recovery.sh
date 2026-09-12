@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra crash and recovery suite.
+# pgVolvra crash and recovery suite.
 #
 # Everything here is meant to be safe by design -- an undo is one
 # transaction, the archive manifest is replaced by atomic rename, the

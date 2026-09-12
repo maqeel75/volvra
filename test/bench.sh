@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra capture-overhead benchmark
+# pgVolvra capture-overhead benchmark
 #
 # Every captured write becomes that write plus a full before-and-after row
 # image.  Nobody arms a production table against an unknown number, so this

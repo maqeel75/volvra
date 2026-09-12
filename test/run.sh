@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra test matrix.
+# pgVolvra test matrix.
 #
 # Every suite runs TWICE per PostgreSQL version, in two privilege
 # contexts:

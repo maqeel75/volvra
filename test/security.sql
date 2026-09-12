@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra security suite
+-- pgVolvra security suite
 --
 -- Everything here runs as a *real unprivileged role* via SET ROLE, not as
 -- the superuser that installed volvra.  Negative tests are wrapped in

@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra replay -- the mirror of undo
+-- pgVolvra replay -- the mirror of undo
 --
 -- Gate: a replay reapplies exactly the changes it was asked to, onto
 -- rows that still hold what was captured before them, or it refuses.

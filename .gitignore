@@ -19,6 +19,12 @@ cli/volvra-*
 companion/volvra-companion
 companion/volvra-companion-*
 
+# A bare `go build ./...` ignores the Makefile and names the binary after
+# its directory, so these two never appear in a normal build and are the
+# easiest to commit by accident.
+cli/cli
+companion/companion
+
 # Go source and docs are never build output, whatever the name suffix
 # rules above might otherwise catch.
 !*.go

@@ -1,8 +1,8 @@
-# Upgrading Volvra
+# Upgrading pgVolvra
 
-This document describes how Volvra upgrades an existing install. The
-install file is a migration runner, so upgrading Volvra is the same
-command as installing Volvra.
+This document describes how pgVolvra upgrades an existing install. The
+install file is a migration runner, so upgrading pgVolvra is the same
+command as installing pgVolvra.
 
 ## Running an upgrade
 
@@ -12,13 +12,13 @@ Run the install file again against the same database:
 psql "$DATABASE_URL" -f sql/volvra.sql
 ```
 
-Volvra reads the version the database already has, applies only the
+pgVolvra reads the version the database already has, applies only the
 migrations the database is missing, and records each one. Running the
 file twice changes nothing the second time.
 
 ## The version ledger
 
-Volvra records every applied migration in `volvra.schema_version`:
+pgVolvra records every applied migration in `volvra.schema_version`:
 
 ```sql
 SELECT version, applied_at, applied_by, note
@@ -34,35 +34,35 @@ The output shows the schema versions this database has been through:
 ```
 
 Read the current version with `volvra.version()`. There is one schema
-version today, because Volvra has not been released yet; a released
+version today, because pgVolvra has not been released yet; a released
 version numbers its migrations from 2 onwards. The ledger has no gaps,
 so a missing number always means a migration that did not run rather
 than an install that skipped ahead.
 
-The number is internal. Volvra reports it as the internal schema
+The number is internal. pgVolvra reports it as the internal schema
 version deliberately, so nobody reads it as a release number; the
 release number is separate and lives in `extension/volvra.control`.
 
 ## Migrations are forward only
 
-Volvra provides no down migrations. History is the product, and a
+pgVolvra provides no down migrations. History is the product, and a
 downgrade that reshaped the history table would risk destroying the
-history Volvra exists to hold.
+history pgVolvra exists to hold.
 
 Each release adds numbered migrations from where the previous release
 left off, and never reshapes what an existing version already holds.
 The install applies only the migrations a database is missing, which is
 what makes reinstalling the current script over live history safe.
 
-Volvra 0.1.0 is the first release, so it ships one schema version. The
-blocks that repaired databases created during Volvra's development
+pgVolvra 0.1.0 is the first release, so it ships one schema version. The
+blocks that repaired databases created during pgVolvra's development
 were removed at that release; they existed only because development
 changed the shape of the history table several times without releasing
 any of it.
 
 ## Version numbers
 
-Volvra maintains two separate counters. The following table describes
+pgVolvra maintains two separate counters. The following table describes
 each counter:
 
 | Counter | Meaning |

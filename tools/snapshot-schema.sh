@@ -28,7 +28,7 @@ fi
 mkdir -p "$ROOT/test/fixtures"
 {
   echo "-- ====================================================================="
-  echo "-- Volvra ${VERSION} -- FROZEN RELEASE SNAPSHOT. Do not edit."
+  echo "-- pgVolvra ${VERSION} -- FROZEN RELEASE SNAPSHOT. Do not edit."
   echo "--"
   echo "-- Captured from sql/volvra.sql by tools/snapshot-schema.sh at release"
   echo "-- time. Its only purpose is to let a later release prove that"

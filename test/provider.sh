@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra managed-provider verification.
+# pgVolvra managed-provider verification.
 #
 # Everything else in test/ runs against a container we control. This
 # runs against a real managed PostgreSQL -- Aurora, RDS, Cloud SQL,
-# Supabase, Neon -- because that is the market Volvra's whole design
+# Supabase, Neon -- because that is the market pgVolvra's whole design
 # exists for, and a claim that has only ever been tested in Docker is
 # an untested claim.
 #
 # What it proves, in the order that matters:
-#   1. Volvra installs as a non-superuser, which no provider gives you.
+#   1. pgVolvra installs as a non-superuser, which no provider gives you.
 #   2. The parts providers restrict actually work: partitioning, RLS,
 #      cluster-wide roles, statement triggers.
 #   3. An undo round-trips real data.
@@ -19,7 +19,7 @@
 #   ./test/provider.sh --dsn "postgres://user@host:5432/dbname"
 #   PGHOST=... PGUSER=... ./test/provider.sh
 #
-# Point it at a THROWAWAY database. It installs Volvra and, unless
+# Point it at a THROWAWAY database. It installs pgVolvra and, unless
 # --keep is given, removes the schema afterwards -- which destroys
 # history. It refuses to run against a database whose change_log
 # already holds rows.
@@ -77,7 +77,7 @@ note "server     $SRV"
 note "role       $WHOAMI (superuser: $IS_SUPER)"
 note "provider   $(q "SELECT coalesce(nullif(current_setting('rds.extensions', true), ''), 'n/a')" | cut -c1-48)"
 
-# A pooled endpoint gives answers this script cannot trust. Volvra records the
+# A pooled endpoint gives answers this script cannot trust. pgVolvra records the
 # application-declared actor through a session setting, and a transaction-mode
 # pooler hands the session to another client between transactions; a pooler
 # also cannot create a replication slot. Providers hand out the pooled host by
@@ -88,9 +88,9 @@ case "${DSN}${PGHOST:-}" in
     echo "  WARNING: this looks like a pooled endpoint."
     echo "  Use the direct one -- usually the same host with '-pooler'"
     echo "  removed. A transaction-mode pooler breaks the session setting"
-    echo "  Volvra reads the actor from, and cannot create a replication"
+    echo "  pgVolvra reads the actor from, and cannot create a replication"
     echo "  slot, so section 5 and section 9 would report the pooler's"
-    echo "  limits as though they were Volvra's."
+    echo "  limits as though they were pgVolvra's."
     ;;
 esac
 
@@ -100,7 +100,7 @@ if [[ "$IS_SUPER" == "f" ]]; then
   ok "the installing role is not a superuser, which is the point"
 else
   bad "the installing role IS a superuser -- this is not a managed-provider test"
-  note "Volvra's design exists because providers give you no superuser."
+  note "pgVolvra's design exists because providers give you no superuser."
   note "Run this against the provider's own master user."
 fi
 
@@ -129,7 +129,7 @@ fi
 
 if [[ $ASSUME_YES -ne 1 ]]; then
   echo
-  printf "  This installs Volvra into '%s' and %s afterwards. Continue? [y/N] " \
+  printf "  This installs pgVolvra into '%s' and %s afterwards. Continue? [y/N] " \
     "$DBNAME" "$([[ $KEEP -eq 1 ]] && echo 'keeps it' || echo 'drops the volvra schema')"
   read -r reply
   [[ "$reply" == "y" || "$reply" == "Y" ]] || { echo "  nothing was changed."; exit 1; }
@@ -160,7 +160,7 @@ if [[ "$CREATEROLE" == "t" ]]; then
   ok "CREATEROLE, so the three volvra_* roles can be created"
 else
   bad "CREATEROLE is absent -- the volvra_* roles cannot be created"
-  note "Volvra still installs and works, as the checks below show, but"
+  note "pgVolvra still installs and works, as the checks below show, but"
   note "its privilege model degrades to permissive, which preflight"
   note "reports as critical. A provider that gives you an"
   note "application-scoped role rather than an admin one needs one"
@@ -222,7 +222,7 @@ PARTS=$(q "SELECT count(*) FROM pg_inherits WHERE inhparent='volvra.change_log':
 head_ "5. an undo, on real data"
 # Every count below is scoped to this run. The probe schema is dropped and
 # recreated each time, but the HISTORY of the dropped table survives -- which
-# is the entire point of Volvra, and which made these assertions count three
+# is the entire point of pgVolvra, and which made these assertions count three
 # runs' worth of changes and fail on a re-run against the same database.
 RUN_T0=$(q "SELECT clock_timestamp()")
 "${PSQL[@]}" -q >/dev/null 2>&1 <<'SQL'

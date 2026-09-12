@@ -454,5 +454,5 @@ The plan is complete when the following are all true:
 ## Before starting
 
 Done. The repository is under version control at
-`github.com/maqeel75/volvra`, so the restructuring of `test/run.sh`
+`github.com/maqeel75/pgVolvra`, so the restructuring of `test/run.sh`
 and everything after it is reviewable and revertable.

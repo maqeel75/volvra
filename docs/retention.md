@@ -1,18 +1,18 @@
 # Managing Retention
 
-This document explains how Volvra reclaims history and how to bound
+This document explains how pgVolvra reclaims history and how to bound
 history growth. History outgrows the table it protects, so retention
 is not optional.
 
 ## Why retention matters
 
-Volvra stores a row image for every captured change. Measured on a
+pgVolvra stores a row image for every captured change. Measured on a
 narrow table, the history reaches roughly 1.8 times the size of the
 table it protects after 50,000 updates. Growth continues for as long
 as the table is written.
 
-Volvra deletes nothing until you run a purge. Volvra will not quietly
-discard the history Volvra exists to hold, which means bounding the
+pgVolvra deletes nothing until you run a purge. pgVolvra will not quietly
+discard the history pgVolvra exists to hold, which means bounding the
 growth is your decision to make and schedule.
 
 ## Setting a policy
@@ -61,17 +61,17 @@ The following table describes the actions the function reports:
 
 | Action | Meaning |
 |---|---|
-| dropped partition | Volvra dropped a whole monthly partition that lay entirely behind the cutoff. |
-| deleted rows | Volvra deleted individual rows from the partition straddling the cutoff, or from the default partition. |
+| dropped partition | pgVolvra dropped a whole monthly partition that lay entirely behind the cutoff. |
+| deleted rows | pgVolvra deleted individual rows from the partition straddling the cutoff, or from the default partition. |
 
 Dropping a partition is metadata only, with no row scan and no bloat.
-Volvra falls back to row deletion only where a partition spans the
+pgVolvra falls back to row deletion only where a partition spans the
 cutoff.
 
 ## Partitions
 
 The `change_log` table is range-partitioned by month, which is what
-makes retention cheap. Volvra creates the current month and the next
+makes retention cheap. pgVolvra creates the current month and the next
 twelve at install.
 
 Extend the partitions on a schedule:
@@ -83,7 +83,7 @@ SELECT partition_name, status FROM volvra.ensure_partitions(12);
 A default partition exists as a safety net. If a month is ever
 missing, a capture must never fail, because a failed capture fails the
 application's own write. Rows that land in the default partition
-cannot be reclaimed by dropping a month, so Volvra reports them:
+cannot be reclaimed by dropping a month, so pgVolvra reports them:
 
 ```sql
 SELECT partition_name, rows_moved FROM volvra.relocate_default();
@@ -118,7 +118,7 @@ SELECT * FROM volvra.maintain(p_months_ahead => 24, p_seal => false);
 
 ## Scheduling without pg_cron
 
-Volvra cannot schedule itself. If the `pg_cron` extension is
+pgVolvra cannot schedule itself. If the `pg_cron` extension is
 available, schedule the maintenance function with pg_cron. Otherwise
 run the function from outside the database:
 
@@ -132,7 +132,7 @@ which situation applies.
 ## Retention and integrity
 
 Retention removes history, and a sealed span whose rows are gone no
-longer matches its seal. Volvra records every retention run in
+longer matches its seal. pgVolvra records every retention run in
 `volvra.retention_log`, including the range of change identifiers
 removed:
 
@@ -143,7 +143,6 @@ FROM volvra.retention_log ORDER BY id DESC;
 
 `volvra.verify` reads that ledger, so a span emptied by a recorded
 retention run reports as lawful rather than as tampering. See the
-[Verifying History Integrity](integrity.md) document.
 
 ## Next Steps
 

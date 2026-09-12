@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra scenario coverage (TESTPLAN priority 6)
+-- pgVolvra scenario coverage (TESTPLAN priority 6)
 --
 -- The other suites test the paths volvra was designed around. This one
 -- tests the table shapes, identifiers, and schema changes real

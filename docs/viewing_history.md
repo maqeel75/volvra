@@ -1,6 +1,6 @@
 # Viewing History
 
-This document describes how to read what Volvra recorded. Reading
+This document describes how to read what pgVolvra recorded. Reading
 history requires only membership in `volvra_viewer` and the privilege
 to read the underlying table.
 
@@ -13,7 +13,7 @@ SELECT change_id, ts, actor, db_user, op, old_row, new_row
 FROM volvra.history('orders', '{"id":1}');
 ```
 
-The second argument is the primary key as `jsonb`. Volvra matches by
+The second argument is the primary key as `jsonb`. pgVolvra matches by
 containment, so a composite key can be given in full or in part.
 
 The following table describes each column of the result:
@@ -21,7 +21,7 @@ The following table describes each column of the result:
 | Column | Contents |
 |---|---|
 | change_id | Identifier of the captured change. |
-| ts | When Volvra captured the change. |
+| ts | When pgVolvra captured the change. |
 | actor | What the application declared it was doing. Spoofable by design. |
 | db_user | The authenticated principal. This is the audit column. |
 | op | I for insert, U for update, D for delete, T for an uncaptured truncate. |
@@ -69,7 +69,7 @@ who cannot SELECT a table cannot read that table's history either.
 
 ## Two identities for every change
 
-Volvra records both what the application claimed and who the database
+pgVolvra records both what the application claimed and who the database
 authenticated. The following table compares the two columns:
 
 | Column | Source | Trust |
@@ -108,7 +108,6 @@ FROM volvra.change_log
 WHERE redacted_at IS NOT NULL;
 ```
 
-See the [Erasing Data](erasure.md) document.
 
 ## Next Steps
 

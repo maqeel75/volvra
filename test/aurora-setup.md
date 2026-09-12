@@ -1,4 +1,4 @@
-# Creating an Aurora cluster to verify Volvra against
+# Creating an Aurora cluster to verify pgVolvra against
 
 Maintainer notes, not product documentation. This builds a throwaway
 Aurora PostgreSQL cluster, runs `test/provider.sh` against it, and
@@ -167,7 +167,7 @@ psql "postgres://${MASTER}@${PGHOST}:5432/postgres?sslmode=require" \
 ```
 
 `rolsuper` must be `f`. If it is `t`, something is wrong: Aurora does
-not grant superuser, and a superuser install is not what Volvra is
+not grant superuser, and a superuser install is not what pgVolvra is
 being verified against.
 
 ## 5. Prepare the database
@@ -254,7 +254,7 @@ later, because `rds.logical_replication` is static.
 
 1. RDS, then **Parameter groups**, then **Create parameter group**.
 2. Type must be **DB cluster parameter group**, not the plain DB
-    parameter group. The setting Volvra's durable tier needs does not
+    parameter group. The setting pgVolvra's durable tier needs does not
     exist on the instance-level group.
 3. Family: `aurora-postgresql` with the major version you intend to
     create, for example `aurora-postgresql16`.

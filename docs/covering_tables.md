@@ -1,22 +1,22 @@
 # Covering Tables
 
 This document explains what coverage means, how to keep coverage
-complete, and what coverage costs. A table is covered when Volvra
+complete, and what coverage costs. A table is covered when pgVolvra
 records its changes, so a mistake on that table can be undone.
 
 ## What coverage means
 
-Coverage is per table. A covered table has two Volvra triggers
+Coverage is per table. A covered table has two pgVolvra triggers
 attached, and every change to the table becomes a row in
 `volvra.change_log`. An uncovered table has no triggers, no recorded
 history, and no undo.
 
-An uncovered table costs nothing at all, because Volvra installs
+An uncovered table costs nothing at all, because pgVolvra installs
 nothing on the table. Coverage is therefore a deliberate choice about
 which tables matter, rather than something to apply everywhere by
 default.
 
-Coverage starts when you cover the table. Volvra cannot recover a
+Coverage starts when you cover the table. pgVolvra cannot recover a
 change made before that moment, because no record of the change
 exists.
 
@@ -36,7 +36,7 @@ SELECT table_name, status, detail FROM volvra.enable_all('public');
 
 The function reports one row per table, including the tables the
 function skipped and why. A table with no primary key is skipped
-rather than failed, because Volvra identifies rows by primary key.
+rather than failed, because pgVolvra identifies rows by primary key.
 
 ## Covering a partitioned table
 
@@ -48,7 +48,7 @@ SELECT volvra.enable('events');
 
 PostgreSQL propagates a row trigger from a partitioned parent to every
 partition, including partitions attached later, so covering the parent
-covers the whole table. Volvra records each change under the parent's
+covers the whole table. pgVolvra records each change under the parent's
 name, which means one undo of the parent reverts rows in every
 partition:
 
@@ -75,7 +75,7 @@ SELECT partition_name, action FROM volvra.cover_partitions('events');
 ## Renaming a covered table
 
 Renaming a covered table, or moving the table between schemas, needs
-no action. The triggers move with the table, and Volvra identifies a
+no action. The triggers move with the table, and pgVolvra identifies a
 covered table by its relation identifier rather than by name, so the
 coverage ledger corrects itself on the next change and reports a
 notice naming the old and new names.
@@ -107,14 +107,14 @@ SELECT table_name, reason FROM volvra.uncovered('public');
 The `reason` column distinguishes a table that was never covered from
 a table that cannot be covered because the table has no primary key.
 
-Volvra deliberately does not use an event trigger to cover new tables
+pgVolvra deliberately does not use an event trigger to cover new tables
 automatically. Creating an event trigger requires a superuser, and
-installing without a superuser is central to Volvra's design.
+installing without a superuser is central to pgVolvra's design.
 
 ## Checking that coverage is real
 
 Registration and capture are different things. An owner can disable a
-Volvra trigger, which leaves a table registered but silent. Read the
+pgVolvra trigger, which leaves a table registered but silent. Read the
 live state with `volvra.status`:
 
 ```sql
@@ -123,7 +123,7 @@ FROM volvra.status();
 ```
 
 The `covered` column checks that the trigger is attached and enabled,
-rather than merely that the table is registered. Volvra reports a
+rather than merely that the table is registered. pgVolvra reports a
 registered table that is not capturing as a critical finding in
 `volvra.health()`, because a table that appears protected and is not
 is the worst state to be in.
@@ -139,7 +139,6 @@ accounts, entitlements, and pricing. Leave high-volume append-only
 tables, such as event and telemetry tables, uncovered; those tables
 are where the cost is highest and the value of an undo is lowest.
 
-See the [Performance](performance.md) document for measured figures.
 
 ## Excluding columns from capture
 
@@ -154,14 +153,14 @@ FROM volvra.exclude_columns('cards', ARRAY['pan']);
 An excluded column never reaches the history, and an update confined
 to excluded columns records nothing at all.
 
-The cost is unavoidable. Volvra cannot restore a column Volvra never
+The cost is unavoidable. pgVolvra cannot restore a column pgVolvra never
 captured, and if the column is NOT NULL with no default then undoing a
 DELETE on that table becomes impossible. The function warns at that
 moment, and a later undo refuses rather than inserting a row with a
 wrong value.
 
-Volvra refuses to exclude a primary key column, because the primary
-key is how Volvra identifies a row.
+pgVolvra refuses to exclude a primary key column, because the primary
+key is how pgVolvra identifies a row.
 
 ## Stopping coverage
 
@@ -178,7 +177,7 @@ SELECT table_name, status FROM volvra.disable_all('public');
 ```
 
 Both functions keep the recorded history, so an undo of a change
-captured before you stopped still works. Volvra reports a notice in
+captured before you stopped still works. pgVolvra reports a notice in
 that case, because history for the table ends at the moment coverage
 stopped.
 

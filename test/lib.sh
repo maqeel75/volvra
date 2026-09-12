@@ -1,5 +1,5 @@
 # =====================================================================
-# Shared helpers for the Volvra shell suites.
+# Shared helpers for the pgVolvra shell suites.
 #
 # Source this, do not execute it:
 #     . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

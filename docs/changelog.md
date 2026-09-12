@@ -1,8 +1,6 @@
 # Release Notes
 
-All notable changes to Volvra are documented in this file. The format
-follows [Keep a Changelog](https://keepachangelog.com/), and Volvra
-uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to pgVolvra are documented in this file. The format
 
 ## [Unreleased]
 
@@ -14,7 +12,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `volvra.preflight` warns when a database receives replicated changes
   without capturing them. Verified on a two-node Spock cluster, where
   a node reverted a change made on its peer.
-- A critical preflight finding when a Volvra table is in a publication
+- A critical preflight finding when a pgVolvra table is in a publication
   or replication set, which would make two nodes write the same
   history identifiers.
 
@@ -88,7 +86,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Notes
 
-- Volvra requires PostgreSQL 14 or later and no PostgreSQL extensions.
-- Volvra has not yet been validated against a live managed provider
+- pgVolvra requires PostgreSQL 14 or later and no PostgreSQL extensions.
+- pgVolvra has not yet been validated against a live managed provider
   instance.
 - No release signing key is published yet.

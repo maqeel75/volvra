@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra phase 4 -- trust
+-- pgVolvra phase 4 -- trust
 --
 -- Gate: every claim in the README survives a hostile reading.  These tests
 -- therefore try to break the claims, not demonstrate them.

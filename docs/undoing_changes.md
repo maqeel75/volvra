@@ -1,7 +1,7 @@
 # Undoing Changes
 
-This document describes every way to select what Volvra reverts, and
-what Volvra does when a row has changed since the mistake. Previewing
+This document describes every way to select what pgVolvra reverts, and
+what pgVolvra does when a row has changed since the mistake. Previewing
 an undo is always safe; applying one requires an explicit
 confirmation.
 
@@ -14,7 +14,7 @@ SELECT seq, table_name, op, inverse_op, pk, conflict, stmt
 FROM volvra.preview_undo('orders', now() - interval '10 minutes');
 ```
 
-The `stmt` column holds the exact statement Volvra would run, so the
+The `stmt` column holds the exact statement pgVolvra would run, so the
 preview is auditable. `volvra.undo` without `confirm => true` behaves
 the same way.
 
@@ -27,8 +27,8 @@ SELECT * FROM volvra.undo('orders', now() - interval '10 minutes',
                           now(), confirm => true);
 ```
 
-Volvra applies the whole plan inside the caller's transaction, so the
-undo commits completely or not at all. Volvra captures the undo, so an
+pgVolvra applies the whole plan inside the caller's transaction, so the
+undo commits completely or not at all. pgVolvra captures the undo, so an
 undo can itself be undone.
 
 ## Selecting what to revert
@@ -119,13 +119,13 @@ intent really is to rewind, such as a failed deployment on a database
 nobody else is using.
 
 The conflict guard still applies to a mark, but it only fires for a
-change Volvra never recorded, such as one made while capture was
-disabled. Anything Volvra did record since the mark is part of what
+change pgVolvra never recorded, such as one made while capture was
+disabled. Anything pgVolvra did record since the mark is part of what
 you asked to revert.
 
 ## Using a predicate safely
 
-The predicate is a WHERE fragment, not a statement. Volvra
+The predicate is a WHERE fragment, not a statement. pgVolvra
 parenthesizes the fragment before splicing the fragment into the
 query, and refuses any predicate containing a semicolon, a double
 hyphen, or a slash-star comment opener.
@@ -136,7 +136,7 @@ is a filter rather than a privilege escalation.
 ## When a row has changed since the mistake
 
 Every compensating statement carries a guard that matches only if the
-live row still holds the captured values. Volvra refuses the whole
+live row still holds the captured values. pgVolvra refuses the whole
 undo when any row has moved on, and raises `serialization_failure`.
 
 Revert everything else and leave the changed rows alone by passing
@@ -149,7 +149,7 @@ FROM volvra.undo('orders', :t0, :t1,
 ```
 
 The `status` column reports `applied` or `skipped` for each row.
-Volvra offers no option to overwrite a row that has changed, because
+pgVolvra offers no option to overwrite a row that has changed, because
 overwriting is the data loss the guard exists to prevent.
 
 The guard tests only the columns the undo writes. A later change to a
@@ -158,7 +158,7 @@ cannot destroy that change.
 
 ## Limiting the blast radius
 
-Volvra refuses an undo that would affect more rows than
+pgVolvra refuses an undo that would affect more rows than
 `max_undo_rows`, and raises `program_limit_exceeded`. Override the cap
 for a single call:
 
@@ -167,12 +167,12 @@ SELECT * FROM volvra.undo('orders', :t0, :t1,
                           confirm => true, max_rows => 250000);
 ```
 
-Volvra records the override in `volvra.undo_log`, so an unusually
+pgVolvra records the override in `volvra.undo_log`, so an unusually
 large undo is visible afterwards.
 
 ## Undoing across related tables
 
-Volvra walks a plan in reverse chronological order across every
+pgVolvra walks a plan in reverse chronological order across every
 selected table. For ordinary foreign keys that order is already
 correct, because the application could only have deleted a child
 before its parent.
@@ -199,15 +199,15 @@ nothing.
 
 ## When an undo finds nothing
 
-Volvra distinguishes three situations, because "no changes reverted"
+pgVolvra distinguishes three situations, because "no changes reverted"
 and "no record of this table" call for different responses. The
 following table describes each case:
 
 | Situation | Behavior |
 |---|---|
-| The table was never covered | Volvra raises invalid_parameter_value and explains that no record exists. |
-| The table was covered in the past | Volvra reverts the recorded history and reports a notice that coverage has stopped. |
-| The table is covered but the window is empty | Volvra reports zero changes, which is not an error. |
+| The table was never covered | pgVolvra raises invalid_parameter_value and explains that no record exists. |
+| The table was covered in the past | pgVolvra reverts the recorded history and reports a notice that coverage has stopped. |
+| The table is covered but the window is empty | pgVolvra reports zero changes, which is not an error. |
 
 ## Errors an undo can raise
 

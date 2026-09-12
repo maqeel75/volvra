@@ -1,6 +1,6 @@
 # Developer Resources
 
-This document describes how to build, test, and contribute to Volvra.
+This document describes how to build, test, and contribute to pgVolvra.
 Contributions are welcome.
 
 ## Repository layout
@@ -60,9 +60,9 @@ supported PostgreSQL version:
 
 Each version runs the following phases in order:
 
-1. Volvra installs as a non-superuser role on a pristine cluster,
+1. pgVolvra installs as a non-superuser role on a pristine cluster,
    which proves the managed-provider privilege model.
-2. Volvra installs twice, which proves the install is idempotent.
+2. pgVolvra installs twice, which proves the install is idempotent.
 3. The acceptance suite exercises the documented workflow.
 4. The security suite attacks the privilege model as real
    unprivileged roles.
@@ -118,9 +118,8 @@ privileges the design depends on being able to live without:
 ./test/provider.sh --dsn "postgres://master@host:5432/probe"
 ```
 
-The script needs only `psql`, installs Volvra into a throwaway
+The script needs only `psql`, installs pgVolvra into a throwaway
 database, and drops the schema afterwards unless given `--keep`. See
-the [Managed Providers](managed_providers.md) document for the
 per-service steps.
 
 ## Running the multi-node suite
@@ -140,7 +139,7 @@ change it never made. Set `VOLVRA_PGEDGE_IMAGE` to test another image.
 
 ## Running the scale suite
 
-The scale suite pushes the limits Volvra advertises past their
+The scale suite pushes the limits pgVolvra advertises past their
 thresholds, which no other suite does. The suite runs on demand, takes
 several minutes, and prints timings for information without asserting
 on them:
@@ -295,7 +294,7 @@ The following command prints the values a release should publish:
 ./tools/checksums.sh
 ```
 
-Volvra installs as a file rather than a signed package, so a release
+pgVolvra installs as a file rather than a signed package, so a release
 must publish a checksum, and ideally a signature, for the installer to
 verify.
 
@@ -341,4 +340,3 @@ We welcome your project contributions. Open an issue to discuss a
 change before starting substantial work.
 
 For more information, visit
-[docs.pgedge.com](https://docs.pgedge.com).

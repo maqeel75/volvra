@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra upgrade test, part 2 -- run after the CURRENT schema has been
+-- pgVolvra upgrade test, part 2 -- run after the CURRENT schema has been
 -- installed over the seeded previous-release database.
 --
 -- This is what makes "you can upgrade volvra" a fact rather than an

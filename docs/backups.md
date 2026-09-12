@@ -1,26 +1,26 @@
-# Volvra and Backups
+# pgVolvra and Backups
 
-This document explains what Volvra recovers, what a backup recovers,
+This document explains what pgVolvra recovers, what a backup recovers,
 and why you need both. Confusing the two is the most consequential
 misunderstanding anyone can have about this software, because the
 moment it matters is the moment you have already lost something.
 
-## Volvra does not replace backups
+## pgVolvra does not replace backups
 
-Volvra and a backup answer different questions. A backup answers what
-the data looked like at a point in time. Volvra answers what changed,
+pgVolvra and a backup answer different questions. A backup answers what
+the data looked like at a point in time. pgVolvra answers what changed,
 when, by whom, and can that single change be reversed.
 
 !!! important "The rule in one sentence"
 
-    A backup restores your **data**. Volvra restores your **ability to
-    reverse a specific change**. The companion makes sure Volvra's
+    A backup restores your **data**. pgVolvra restores your **ability to
+    reverse a specific change**. The companion makes sure pgVolvra's
     history is still there when you reach for it.
 
 Restoring a backup is the blunt instrument. If someone runs a mistaken
 `UPDATE` on Thursday afternoon and the most recent backup is from
 Tuesday, restoring it reverses the mistake and discards two days of
-legitimate work with it. Volvra reverts only the rows the mistake
+legitimate work with it. pgVolvra reverts only the rows the mistake
 touched.
 
 ## What each one recovers
@@ -29,13 +29,13 @@ The following table describes which tool recovers what:
 
 | What was lost | What recovers it |
 |---|---|
-| Rows changed or deleted after the last backup | Volvra history, through volvra.undo |
-| A single bad transaction among thousands of good ones | Volvra history, through volvra.undo_txid |
+| Rows changed or deleted after the last backup | pgVolvra history, through volvra.undo |
+| A single bad transaction among thousands of good ones | pgVolvra history, through volvra.undo_txid |
 | The history itself, purged or aged out by retention | The companion archive |
 | A dropped table, a dropped schema, a lost instance | Your backup |
 | Schema changes, extensions, roles, anything outside covered tables | Your backup |
 
-The first two rows are the cases Volvra exists for. The last two are
+The first two rows are the cases pgVolvra exists for. The last two are
 the cases it cannot help with, and never claims to.
 
 ## An example: a delete after the last backup
@@ -80,12 +80,12 @@ The deleted rows come back. Everything else that happened on Wednesday
 and Thursday stays exactly as it is, which is what restoring Tuesday's
 backup could not have done.
 
-## The two limits that decide whether Volvra can help
+## The two limits that decide whether pgVolvra can help
 
-Volvra can only reverse what it recorded, and two settings decide
+pgVolvra can only reverse what it recorded, and two settings decide
 that.
 
-The first limit is when coverage started. Volvra records changes from
+The first limit is when coverage started. pgVolvra records changes from
 the moment you cover a table and cannot recover a change made before
 that point. A table that was not covered when the data was lost has no
 history to recover from, whatever the backup situation. This is why
@@ -156,17 +156,17 @@ SELECT seq, table_name, op, pk, conflict
 FROM volvra.preview_replay('orders', :backup_taken_at, now());
 ```
 
-### Volvra and point-in-time recovery compose
+### pgVolvra and point-in-time recovery compose
 
 The two tools are at their best together, and the order is what makes
 it work. Recover the data as far forward as possible first, then use
-Volvra to remove the one change you did not want:
+pgVolvra to remove the one change you did not want:
 
 1. Recover the database to the latest point you can, using
     point-in-time recovery or the most recent backup. Recover past the
     mistake rather than before it: the aim is to get every good change
     back, mistake included.
-2. Install Volvra, if the recovered database does not already have it.
+2. Install pgVolvra, if the recovered database does not already have it.
 3. Load the archived history, which matters when the recovered
     database's own history is older than the changes you need to
     reverse, or was purged, or was never there:
@@ -195,7 +195,7 @@ FROM volvra.history('orders', '{"id": 42}');
 ```
 
 That is a record to read, reconcile, and report from, not something
-Volvra can apply for you.
+pgVolvra can apply for you.
 
 ## Next Steps
 

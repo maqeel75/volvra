@@ -1,11 +1,11 @@
 # Function Reference
 
-This document documents every Volvra function, its arguments, and its
+This document documents every pgVolvra function, its arguments, and its
 result. Functions live in the `volvra` schema.
 
 ## Coverage
 
-The functions in this section control which tables Volvra records.
+The functions in this section control which tables pgVolvra records.
 
 ### volvra.enable
 
@@ -110,7 +110,7 @@ following table describes each column:
 | pk | Primary key of the affected row. |
 | actor | What the application declared. |
 | db_user | The authenticated principal. |
-| ts | When Volvra captured the change. |
+| ts | When pgVolvra captured the change. |
 | conflict | True when the live row no longer matches the captured values. |
 | status | planned, applied, or skipped. |
 | stmt | The exact compensating statement. |
@@ -255,7 +255,7 @@ returns `constraint_name`, `table_name`, and `status`.
 
 ## History
 
-The functions in this section read what Volvra recorded.
+The functions in this section read what pgVolvra recorded.
 
 ### volvra.history
 
@@ -278,7 +278,7 @@ function returns `txid`, `started`, `ended`, `actors`, `db_users`,
 
 ## Monitoring
 
-The functions in this section report whether Volvra is working.
+The functions in this section report whether pgVolvra is working.
 
 ### volvra.status
 
@@ -470,7 +470,7 @@ The function in this section answers a deletion request.
 
 ### volvra.forget
 
-Removes the row images Volvra recorded for one subject. Requires
+Removes the row images pgVolvra recorded for one subject. Requires
 membership in `volvra_admin`.
 
 The function takes `target regclass`, `subject_pk jsonb`,
@@ -543,7 +543,7 @@ the new ledger identifier.
 
 ## Trigger functions
 
-Volvra attaches two trigger functions to each covered table. Neither
+pgVolvra attaches two trigger functions to each covered table. Neither
 is called directly.
 
 The `volvra.capture` function records row-level changes and is

@@ -1,7 +1,7 @@
 # Examples
 
 This document walks through six runnable examples that demonstrate what
-Volvra does. Each one is a file in the `examples` directory, is
+pgVolvra does. Each one is a file in the `examples` directory, is
 self-contained, and is safe to run repeatedly.
 
 Every example is verified against PostgreSQL 14 through 19 by
@@ -10,13 +10,13 @@ the script ran. Examples cannot drift from the code.
 
 ## Running them
 
-Run an example against any database that has Volvra installed:
+Run an example against any database that has pgVolvra installed:
 
 ```bash
 psql "$DATABASE_URL" -f examples/01_simple_undo.sql
 ```
 
-Against a throwaway container, install Volvra first:
+Against a throwaway container, install pgVolvra first:
 
 ```bash
 docker run -d --name volvra-demo -e POSTGRES_PASSWORD=demo \
@@ -28,7 +28,7 @@ docker exec volvra-demo psql -U postgres -d shop \
 ```
 
 Two of the examples print an ERROR deliberately, and each says so where
-it happens. Both errors are the expected result: Volvra refusing to
+it happens. Both errors are the expected result: pgVolvra refusing to
 destroy a later change, and the history refusing to be rewritten.
 
 ## What each one shows
@@ -38,8 +38,8 @@ The following table describes the examples:
 | File | Shows |
 |---|---|
 | 01_simple_undo.sql | A mistaken UPDATE, previewed and then reverted. |
-| 02_undo_a_delete.sql | A DELETE reversed by an insert, and the two identities Volvra records. |
-| 03_conflict_guard.sql | Volvra refusing to overwrite a change made after the accident. |
+| 02_undo_a_delete.sql | A DELETE reversed by an insert, and the two identities pgVolvra records. |
+| 03_conflict_guard.sql | pgVolvra refusing to overwrite a change made after the accident. |
 | 04_bad_migration.sql | One transaction id undoing a migration across two tables. |
 | 05_truncate_and_integrity.sql | A reversible TRUNCATE, then tamper detection. |
 | 06_marks.sql | Naming a moment and rewinding to it. |
@@ -47,7 +47,7 @@ The following table describes the examples:
 ## Example 1: a mistaken UPDATE
 
 The simplest case. Three salaries are set to zero by an UPDATE with no
-WHERE clause, and Volvra puts them back:
+WHERE clause, and pgVolvra puts them back:
 
 ```sql
 SELECT clock_timestamp() AS before_mistake \gset
@@ -76,8 +76,8 @@ FROM volvra.undo('customers', :'mark', now(), confirm => true);
 ```
 
 Read the history at the end of this example carefully. It shows three
-entries for the row, `I`, `D` and `I`, where the last is Volvra's own
-undo. An undo is an ordinary change to a covered table, so Volvra
+entries for the row, `I`, `D` and `I`, where the last is pgVolvra's own
+undo. An undo is an ordinary change to a covered table, so pgVolvra
 captures it, and an undo can therefore be undone.
 
 The two identity columns differ, deliberately. `actor` reads
@@ -87,7 +87,7 @@ to audit on.
 
 ## Example 3: the conflict guard
 
-The behaviour that makes Volvra safe to point at production. A script
+The behaviour that makes pgVolvra safe to point at production. A script
 zeroes every invoice, and someone then fixes one of them by hand:
 
 ```sql
@@ -108,7 +108,7 @@ FROM volvra.undo('invoices', :'pre_accident', :'post_accident',
                  confirm => true, skip_conflicts => true);
 ```
 
-There is no third option. Volvra will refuse or skip, and will never
+There is no third option. pgVolvra will refuse or skip, and will never
 overwrite a row that has changed.
 
 ## Example 4: a bad migration
@@ -129,7 +129,7 @@ you do not already have it.
 
 ## Example 5: TRUNCATE, and proving the history is intact
 
-Row triggers never fire on TRUNCATE, so Volvra attaches a statement
+Row triggers never fire on TRUNCATE, so pgVolvra attaches a statement
 trigger that captures every row first. All fifty rows come back.
 
 The example then demonstrates integrity in two stages. First a plain

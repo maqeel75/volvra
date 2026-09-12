@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra phase 3 -- scale
+-- pgVolvra phase 3 -- scale
 --
 -- Gate: a DBA can predict what volvra costs them in write throughput and
 -- disk, and can bound both.

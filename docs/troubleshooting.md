@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This document covers the problems Volvra users encounter, grouped by
+This document covers the problems pgVolvra users encounter, grouped by
 area. Start with `volvra.health()` and `volvra.preflight()`, which
 name most problems directly.
 
@@ -31,9 +31,9 @@ no coverage:
 SELECT table_name, reason FROM volvra.uncovered('public');
 ```
 
-### Volvra refuses to cover a table
+### pgVolvra refuses to cover a table
 
-Volvra requires a primary key, because Volvra identifies rows by
+pgVolvra requires a primary key, because pgVolvra identifies rows by
 primary key. A table with no primary key reports
 `no primary key` from `volvra.uncovered`.
 
@@ -41,7 +41,7 @@ Add a primary key, or accept that the table cannot be covered.
 
 ### An undo says the table was never covered
 
-Volvra raises `invalid_parameter_value` with the message that the
+pgVolvra raises `invalid_parameter_value` with the message that the
 table has never been covered. No history exists for the table, which
 is different from finding no changes in a window.
 
@@ -68,7 +68,7 @@ SELECT * FROM volvra.undo('orders', :t0, :t1,
                           confirm => true, skip_conflicts => true);
 ```
 
-Volvra provides no option to overwrite a changed row.
+pgVolvra provides no option to overwrite a changed row.
 
 ### The undo raises program_limit_exceeded
 
@@ -80,7 +80,7 @@ SELECT * FROM volvra.undo('orders', :t0, :t1,
                           confirm => true, max_rows => 250000);
 ```
 
-Volvra records the override in `volvra.undo_log`.
+pgVolvra records the override in `volvra.undo_log`.
 
 ### The undo raises foreign_key_violation
 
@@ -98,7 +98,7 @@ Alternatively, undo one table at a time in dependency order.
 
 ### The undo raises datatype_mismatch
 
-The table changed shape since Volvra captured the rows, or a required
+The table changed shape since pgVolvra captured the rows, or a required
 column is excluded from capture. The message names the columns that no
 longer exist and the required columns the captured row cannot supply.
 
@@ -118,14 +118,14 @@ reversible.
 ### The undo raises insufficient_privilege
 
 Applying an undo requires membership in `volvra_operator` and the
-caller's own write privileges on the target table. Volvra deliberately
+caller's own write privileges on the target table. pgVolvra deliberately
 does not grant table privileges through the operator role.
 
 ## Privilege problems
 
 This section covers role and permission errors.
 
-### Volvra says a role is required
+### pgVolvra says a role is required
 
 The message names the role, such as `volvra_admin`. Grant the role to
 the user:
@@ -134,9 +134,9 @@ the user:
 GRANT volvra_admin TO alice;
 ```
 
-### The Volvra roles do not exist
+### The pgVolvra roles do not exist
 
-The installing role lacked CREATEROLE, so Volvra skipped role creation
+The installing role lacked CREATEROLE, so pgVolvra skipped role creation
 with a warning. Privilege checks are permissive in that state.
 
 Create the roles as a role with CREATEROLE, re-run the install file,
@@ -144,7 +144,7 @@ and set `strict_roles` to `on`.
 
 ### Reading history returns permission denied
 
-Reading a table's history requires SELECT on that table. Volvra
+Reading a table's history requires SELECT on that table. pgVolvra
 enforces the rule with row-level security and with explicit checks, so
 history is never a way around a table's own grants.
 
@@ -155,7 +155,6 @@ write briefly runs with its owner's rights. A superuser owner is a
 standing privilege escalation.
 
 Reinstall as a dedicated non-superuser owner. See the
-[Installation](installation.md) document.
 
 ## Storage and partition problems
 
@@ -163,7 +162,7 @@ This section covers disk growth and partitioning.
 
 ### History is growing without bound
 
-Volvra deletes nothing until a purge runs. Set a policy and schedule
+pgVolvra deletes nothing until a purge runs. Set a policy and schedule
 the maintenance job:
 
 ```sql
@@ -307,7 +306,5 @@ volvra-companion verify --archive /srv/volvra-archive
 ## Still Have Questions?
 
 For more information, visit
-[docs.pgedge.com](https://docs.pgedge.com).
 
 To report an issue with the software, visit
-[the issues page](https://github.com/pgEdge/volvra/issues).

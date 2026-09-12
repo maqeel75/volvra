@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra upgrade test, part 1 -- run against the PREVIOUS RELEASE's
+-- pgVolvra upgrade test, part 1 -- run against the PREVIOUS RELEASE's
 -- schema, from test/fixtures/volvra-<version>.sql.
 --
 -- Markers go in a table, not a GUC: the current schema is installed by a

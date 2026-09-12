@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra portability suite.
+# pgVolvra portability suite.
 #
 # We ship two binaries -- linux/amd64 and linux/arm64 -- and claim they
 # run on EL9, EL10, Debian bullseye through trixie, and Ubuntu jammy

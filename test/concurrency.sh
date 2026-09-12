@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra concurrency suite.
+# pgVolvra concurrency suite.
 #
-# Volvra makes three promises that only hold under concurrency:
+# pgVolvra makes three promises that only hold under concurrency:
 #
 #   1. undos of the same table serialise on an advisory lock rather
 #      than interleaving;

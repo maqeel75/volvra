@@ -1,6 +1,6 @@
 # Companion Overview
 
-This document explains what the Volvra companion does, when to deploy
+This document explains what the pgVolvra companion does, when to deploy
 the companion, and what the companion requires. The companion is the
 durable tier; the trigger tier alone is not a backup.
 
@@ -19,7 +19,6 @@ Deploy the companion when the history must outlive the database. Most
 deployments use the trigger tier alone.
 
 The archive is not a physical backup, and the companion is not a
-substitute for one. The [Volvra and Backups](backups.md) document sets
 out what each recovers.
 
 ## Requirements
@@ -66,7 +65,7 @@ plugin built into PostgreSQL. Plugins such as `wal2json` are
 server-side extensions, which managed providers do not offer.
 
 Choosing `pgoutput` keeps the companion usable on the same providers
-the core supports. Because `pgoutput` streams a publication, Volvra
+the core supports. Because `pgoutput` streams a publication, pgVolvra
 maintains one for you.
 
 ## Preparing the database
@@ -82,7 +81,7 @@ The function reports the server's `wal_level`, sets
 `REPLICA IDENTITY FULL` on each covered table in the schema, and
 rebuilds the publication from the set of covered tables.
 
-Volvra rebuilds the publication rather than patching the publication,
+pgVolvra rebuilds the publication rather than patching the publication,
 because reconciling additions and removals by hand is how a table ends
 up silently outside the publication.
 
@@ -108,7 +107,6 @@ resumes from the last segment the archive holds, and streams
 continuously. Stop the companion with SIGINT or SIGTERM; the companion
 flushes and closes the current segment before exiting.
 
-See the [Companion Reference](companion_reference.md) document for
 every command and flag.
 
 ## The archive format
@@ -219,7 +217,7 @@ outside the publication looks like working coverage until the day the
 archive is needed, so the row reports `INCOMPLETE` and names how many
 covered tables are affected.
 
-Volvra records the companion's progress in
+pgVolvra records the companion's progress in
 `volvra.companion_checkpoint`, and gaps in `volvra.companion_gap`.
 
 ## What the companion does not do

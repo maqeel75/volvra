@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra 0.1.0 -- FROZEN RELEASE SNAPSHOT. Do not edit.
+-- pgVolvra 0.1.0 -- FROZEN RELEASE SNAPSHOT. Do not edit.
 --
 -- Captured from sql/volvra.sql by tools/snapshot-schema.sh at release
 -- time. Its only purpose is to let a later release prove that
@@ -10,7 +10,7 @@
 -- the databases being upgraded have it too.
 -- =====================================================================
 -- =====================================================================
--- Volvra — undo for Postgres (v0, trigger tier)
+-- pgVolvra — undo for Postgres (v0, trigger tier)
 --
 -- Pure SQL / PL/pgSQL. No C, no superuser, no server filesystem access.
 -- Tested on PostgreSQL 14 .. 19 (see test/run.sh).
@@ -80,7 +80,7 @@ CREATE TYPE volvra.undo_step AS (
 );
 
 COMMENT ON SCHEMA volvra IS
-  'Volvra: row-level undo / time machine for PostgreSQL (trigger capture tier).';
+  'pgVolvra: row-level undo / time machine for PostgreSQL (trigger capture tier).';
 
 -- ---------------------------------------------------------------------
 -- Roles
@@ -3980,7 +3980,7 @@ $$;
 -- ---------------------------------------------------------------------
 -- fingerprint -- is the code running in this database the code you audited?
 --
--- Volvra installs as a SQL file, which means the integrity question is real:
+-- pgVolvra installs as a SQL file, which means the integrity question is real:
 -- a tampered file installs tampered functions, and several of them are
 -- SECURITY DEFINER.  Verifying the *artifact* before you run it (checksum,
 -- signature) is necessary but only covers install time.

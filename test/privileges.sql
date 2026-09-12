@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra privilege matrix
+-- pgVolvra privilege matrix
 --
 -- One row per (role, function) pair, asserting BOTH directions: that a
 -- permitted call is not refused, and that a forbidden call raises
@@ -9,7 +9,7 @@
 --
 -- The matrix measures AUTHORIZATION, not behaviour, so every call is
 -- chosen to be a no-op: selectors that match nothing, keys that do not
--- exist, schemas that are empty.  Volvra checks the caller's role
+-- exist, schemas that are empty.  pgVolvra checks the caller's role
 -- before it does anything else, so a no-op call still exercises the
 -- check.  Behaviour is covered by the other suites.
 --

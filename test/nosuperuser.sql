@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra installed and driven by a NON-SUPERUSER role.
+-- pgVolvra installed and driven by a NON-SUPERUSER role.
 --
 -- This is the product's central claim -- that it works on RDS, Aurora,
 -- Cloud SQL, Supabase and Neon -- so it is a test, not a README sentence.

@@ -1,5 +1,5 @@
 -- =====================================================================
--- Volvra replay -- edge cases
+-- pgVolvra replay -- edge cases
 --
 -- test/replay.sql covers the behaviour replay is specified to have.
 -- This file covers the shapes and situations that could make it do

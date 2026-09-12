@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Volvra phase 5 -- the durable tier, end to end.
+# pgVolvra phase 5 -- the durable tier, end to end.
 #
 # The claim being tested is the one the trigger tier cannot make: that the
 # history survives the database.  So the decisive test is not "does it

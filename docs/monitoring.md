@@ -1,7 +1,7 @@
 # Monitoring
 
-This document describes the functions that report whether Volvra is
-working, what Volvra costs, and how fast the history is growing.
+This document describes the functions that report whether pgVolvra is
+working, what pgVolvra costs, and how fast the history is growing.
 Every function in this document requires only membership in
 `volvra_viewer`.
 
@@ -26,14 +26,14 @@ The following table describes the conditions `volvra.health` reports:
 | warning | The history has never been sealed, or changes since the last seal are not covered by one. |
 | warning | Tables in the public schema have no undo coverage. |
 
-Volvra grades a registered table that is not capturing as critical
+pgVolvra grades a registered table that is not capturing as critical
 rather than as a warning, because a table that appears protected and
 is not is the worst state to be in.
 
 ## Checking the install before production
 
 `volvra.preflight` answers a different question from `volvra.health`.
-Where health reports whether Volvra is working now, preflight reports
+Where health reports whether pgVolvra is working now, preflight reports
 whether the install is shaped for production:
 
 ```sql
@@ -71,7 +71,7 @@ columns report whether the triggers are actually attached and enabled.
 ## Measuring disk usage
 
 `volvra.storage` reports the size of each covered table against the
-history Volvra holds for it:
+history pgVolvra holds for it:
 
 ```sql
 SELECT table_name, pg_size_pretty(table_bytes) AS table,
